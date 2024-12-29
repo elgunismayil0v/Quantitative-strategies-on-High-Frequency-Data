@@ -13,6 +13,12 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ```{r library}
 library(xts)
+library(TTR)
+library(ggplot2)
+library(dplyr)
+library(quantmod)
+library(tseries)
+library(PerformanceAnalytics)
 ```
 
 ```{r data}
@@ -94,5 +100,44 @@ data1_2024_Q2$time <- strptime(data1_2024_Q2$time,
 
 ```{r}
 plot(data1_2024_Q2[,1])
+```
+
+
+```{r}
+data1_2022_Q1$ema_10 <- EMA(data1_2022_Q1$NQ, 10)
+data1_2022_Q1$ema_20 <- EMA(data1_2022_Q1$NQ, 20)
+```
+
+
+```{r}
+data1_2022_Q1$postion <- ifelse(lag.xts(data1_2022_Q1$ema_20) > lag.xts(data1_2022_Q1$ema_10), -1, 1)
+
+```
+
+```{r}
+data1_2022_Q1$groos_profit <- data1_2022_Q1$postion * diff.xts(data1_2022_Q1$NQ) * 50
+```
+
+```{r}
+data1_2022_Q1$groos_profit[is.na(data1_2022_Q1$groos_profit)] <- 0
+chart_Series(cumsum(data1_2022_Q1$groos_profit),
+             name = "Gross PnL for One MA entry - momentum")
+```
+
+```{r}
+data1_2022_Q1$NoOfTrans <- abs(diff.xts(data1_2022_Q1$postion))
+```
+
+```{r}
+data1_2022_Q1$NoOfTrans[1] <- 0
+```
+
+```{r}
+data1_2022_Q1$net_profit <- data1_2022_Q1$groos_profit - data1_2022_Q1$NoOfTrans * 12
+```
+
+```{r}
+#data1_2022_Q1$net_profit[is.na(data1_2022_Q1$net_profit)] <- 0
+chart_Series(cumsum((data1_2022_Q1$net_profit)))
 ```
 
