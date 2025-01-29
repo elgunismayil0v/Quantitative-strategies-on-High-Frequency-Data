@@ -1,0 +1,2285 @@
+---
+title: "Quantitative Strategies on High-Frequency Data"
+author: "Elgun Ismayilov"
+date: "`r Sys.Date()`"
+output:
+  word_document:
+    toc: true
+    toc_depth: 2
+    fig_caption: true
+    fig_width: 15
+    fig_height: 12
+  html_document:
+    toc: true
+    toc_title: "Contents"
+    toc_depth: 2
+    toc_float: true
+    theme: lumen
+    css: styles.css
+    code_folding: hide
+    highlight: tango
+editor_options:
+  chunk_output_type: console
+fontsize: 12pt
+geometry: a4paper
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, error = FALSE, message = FALSE,
+                      warning = FALSE, results = "hide", fig.width = 15, fig.height = 12, dev = 'png', fig.retina = 2)
+```
+
+# Introduction
+
+In this project, we implement two simple trading strategies for a single asset: the NASDAQ index futures contract.
+
+## Strategy 1: Exponential Moving Average (EMA)
+
+This strategy uses a 120-period EMA. The trading logic is as follows:
+
+- If, at time \( t_{i-1} \), the asset's price is higher than the EMA, a buy order is placed.
+
+- Otherwise, a sell order is executed at time \( t_i \).
+
+## Strategy 2: EMA with Volatility Band
+
+This strategy uses a 60-period EMA along with a volatility band based on a 120-period window. The trading logic is as follows:
+
+- If, at time \( t_{i-1} \), the asset's price is greater than the EMA plus the volatility band, a buy order is placed.
+
+- Otherwise, a sell order is executed.
+
+# Load necessary libraries
+```{r library}
+library(xts)               # For handling xts time-series objects (e.g., lag.xts, diff.xts)
+library(TTR)               # For technical trading rules, used here for EMA calculation
+library(quantmod)          # For financial modeling and charting (e.g., chartSeries)
+library(PerformanceAnalytics) # Used for performance metrics (e.g., Sortino ratio)
+library(tseries) # Used for maxdrawdown
+library(roll)              # Used for rolling statistics (e.g., roll_mean)
+library(chron)             # Used for handling and comparing times (e.g., times function)
+library(DT) # Used for create table
+```
+
+```{r external function}
+source("https://raw.githubusercontent.com/ptwojcik/HFD/master/function_positionVB.R") # Load custom function for position calculation
+```
+
+# Load datas in sample period
+```{r datas}
+load("/Users/elgun/Desktop/Quantitative-strategies-on-High-Frequency-Data/data/data1_2022_Q1.RData")
+load("/Users/elgun/Desktop/Quantitative-strategies-on-High-Frequency-Data/data/data1_2022_Q3.RData")
+load("/Users/elgun/Desktop/Quantitative-strategies-on-High-Frequency-Data/data/data1_2022_Q4.RData")
+load("/Users/elgun/Desktop/Quantitative-strategies-on-High-Frequency-Data/data/data1_2023_Q2.RData")
+load("/Users/elgun/Desktop/Quantitative-strategies-on-High-Frequency-Data/data/data1_2023_Q4.RData")
+load("/Users/elgun/Desktop/Quantitative-strategies-on-High-Frequency-Data/data/data1_2024_Q1.RData")
+load("/Users/elgun/Desktop/Quantitative-strategies-on-High-Frequency-Data/data/data1_2024_Q2.RData")
+```
+
+# Load datas in sample period
+
+```{r}
+load("/Users/elgun/Desktop/Quantitative-strategies-on-High-Frequency-Data/data/data1_2022_Q2.RData")
+load("/Users/elgun/Desktop/Quantitative-strategies-on-High-Frequency-Data/data/data1_2023_Q1.RData")
+load("/Users/elgun/Desktop/Quantitative-strategies-on-High-Frequency-Data/data/data1_2023_Q3.RData")
+load("/Users/elgun/Desktop/Quantitative-strategies-on-High-Frequency-Data/data/data1_2024_Q3.RData")
+load("/Users/elgun/Desktop/Quantitative-strategies-on-High-Frequency-Data/data/data1_2024_Q4.RData")
+```
+
+# Data preparation
+## Convert 'time' column to POSIXlt datetime format with GMT timezone
+```{r}
+data1_2022_Q1$time <- strptime(data1_2022_Q1$time, 
+                                  format = "%d.%m.%Y %H:%M:%OS",
+                                  tz = "GMT") 
+```
+
+```{r}
+data1_2022_Q2$time <- strptime(data1_2022_Q2$time, 
+                                  format = "%d.%m.%Y %H:%M:%OS",
+                                  tz = "GMT") 
+```
+
+```{r}
+data1_2022_Q3$time <- strptime(data1_2022_Q3$time, 
+                                  format = "%d.%m.%Y %H:%M:%OS",
+                                  tz = "GMT")
+```
+
+```{r}
+data1_2022_Q4$time <- strptime(data1_2022_Q3$time, 
+                                  format = "%d.%m.%Y %H:%M:%OS",
+                                  tz = "GMT")
+```
+
+```{r}
+data1_2023_Q1$time <- strptime(data1_2023_Q1$time, 
+                                  format = "%d.%m.%Y %H:%M:%OS",
+                                  tz = "GMT")
+```
+
+```{r}
+data1_2023_Q2$time <- strptime(data1_2023_Q2$time, 
+                                  format = "%d.%m.%Y %H:%M:%OS",
+                                  tz = "GMT")
+```
+
+```{r}
+data1_2023_Q3$time <- strptime(data1_2023_Q3$time, 
+                                  format = "%d.%m.%Y %H:%M:%OS",
+                                  tz = "GMT")
+```
+
+```{r}
+data1_2023_Q4$time <- strptime(data1_2023_Q4$time, 
+                                  format = "%d.%m.%Y %H:%M:%OS",
+                                  tz = "GMT")
+```
+
+```{r}
+data1_2024_Q1$time <- strptime(data1_2024_Q1$time, 
+                                  format = "%d.%m.%Y %H:%M:%OS",
+                                  tz = "GMT")
+```
+
+```{r}
+data1_2024_Q2$time <- strptime(data1_2024_Q2$time, 
+                                  format = "%d.%m.%Y %H:%M:%OS",
+                                  tz = "GMT")
+```
+
+```{r}
+data1_2024_Q3$time <- strptime(data1_2024_Q3$time, 
+                                  format = "%d.%m.%Y %H:%M:%OS",
+                                  tz = "GMT")
+```
+
+```{r}
+data1_2024_Q4$time <- strptime(data1_2024_Q4$time, 
+                                  format = "%d.%m.%Y %H:%M:%OS",
+                                  tz = "GMT")
+```
+
+## Extract time (HH:MM:SS) for the entire index
+```{r}
+times_data_2022_Q1 <- substr(index(data1_2022_Q1), 12, 19)
+times_data_2022_Q2 <- substr(index(data1_2022_Q2), 12, 19)
+times_data_2022_Q3 <- substr(index(data1_2022_Q3), 12, 19)
+times_data_2022_Q4 <- substr(index(data1_2022_Q4), 12, 19)
+times_data_2023_Q1 <- substr(index(data1_2023_Q1), 12, 19)
+times_data_2023_Q2 <- substr(index(data1_2023_Q2), 12, 19)
+times_data_2023_Q3 <- substr(index(data1_2023_Q3), 12, 19)
+times_data_2023_Q4 <- substr(index(data1_2023_Q4), 12, 19)
+times_data_2024_Q1 <- substr(index(data1_2024_Q1), 12, 19)
+times_data_2024_Q2 <- substr(index(data1_2024_Q2), 12, 19)
+times_data_2024_Q3 <- substr(index(data1_2024_Q3), 12, 19)
+times_data_2024_Q4 <- substr(index(data1_2024_Q4), 12, 19)
+```
+
+# Plot of price series
+```{r visualize price series}
+# Set up a grid layout for plots (4 rows, 3 columns)
+par(mfrow = c(4, 3), mar = c(4, 4, 2, 1))  
+
+# Generate individual plots for each dataset
+plot(data1_2022_Q1$NQ, type = "l", col = "blue", main = "2022 Q1")
+plot(data1_2022_Q2$NQ, type = "l", col = "blue", main = "2022 Q2")
+plot(data1_2022_Q3$NQ, type = "l", col = "blue", main = "2022 Q3")
+plot(data1_2022_Q4$NQ, type = "l", col = "blue", main = "2022 Q4")
+plot(data1_2023_Q1$NQ, type = "l", col = "blue", main = "2023 Q1")
+plot(data1_2023_Q2$NQ, type = "l", col = "blue", main = "2023 Q2")
+plot(data1_2023_Q3$NQ, type = "l", col = "blue", main = "2023 Q3")
+plot(data1_2023_Q4$NQ, type = "l", col = "blue", main = "2023 Q4")
+plot(data1_2024_Q1$NQ, type = "l", col = "blue", main = "2024 Q1")
+plot(data1_2024_Q2$NQ, type = "l", col = "blue", main = "2024 Q2")
+plot(data1_2024_Q3$NQ, type = "l", col = "blue", main = "2024 Q3")
+plot(data1_2024_Q4$NQ, type = "l", col = "blue", main = "2024 Q4")
+
+# Reset the layout to default
+par(mfrow = c(1, 1))
+```
+
+# Strategies based on 2022 Q1
+```{r}
+data1_2022_Q1["T09:31/T09:35",] <- NA # Remove data between 09:31 and 09:35 by setting it to NA
+data1_2022_Q1["T15:56/T16:00",] <- NA # Remove data between 15:56 and 16:00 by setting it to NA
+
+```
+
+## Single EMA of 'NQ' with a 120-period window
+```{r}
+data1_2022_Q1$ema_120 <- EMA(na.locf(data1_2022_Q1$NQ, 
+                                   na.rm = FALSE),
+                           120) # Calculate the 120-period EMA of 'NQ' after filling missing values using the last observation carried forward
+
+```
+
+```{r}
+data1_2022_Q1$ema_120[is.na(data1_2022_Q1$NQ)] <- NA # Set EMA values to NA where the original 'NQ' values are missing
+
+```
+
+```{r Generate trading positions 2022 Q1}
+data1_2022_Q1$position_ema_120 <- ifelse(lag.xts(data1_2022_Q1$NQ) > 
+                                 lag.xts(data1_2022_Q1$ema_120), 1, -1) # Generate trading positions: 1 if 'NQ' is above its lagged EMA, -1 otherwise
+
+```
+
+```{r}
+# Set trading positions to 0 outside the active trading window (before 09:40:00 or after 15:50:00)
+data1_2022_Q1$position_ema_120[times(times_data_2022_Q1) <= times("9:40:00") | 
+                         times(times_data_2022_Q1) > times("15:50:00")] <- 0
+```
+
+```{r}
+# Fill missing positions with the most recent non-missing value (Last Observation Carried Forward)
+data1_2022_Q1$position_ema_120 <- na.locf(data1_2022_Q1$position_ema_120,
+                                  na.rm = FALSE)
+
+```
+
+### Gross profit for Single EMA
+```{r Gross profit ema_120 2022 Q1}
+# Calculate gross profit based on the position (ema_120), the change in 'NQ' prices, and a factor of 20
+data1_2022_Q1$gross_profit_ema_120 <- data1_2022_Q1$position_ema_120 * diff.xts(data1_2022_Q1$NQ) * 20
+
+```
+
+```{r}
+# Set any missing values in 'gross_profit_ema_120' to 0
+data1_2022_Q1$gross_profit_ema_120[is.na(data1_2022_Q1$gross_profit_ema_120)] <- 0
+chartSeries(cumsum(data1_2022_Q1$gross_profit_ema_120),
+            name = "Cumulative gross Profit of EMA_120")
+```
+
+```{r Identify transactions 2022 Q1}
+# Identify transactions by calculating the absolute change in position (every time the position changes)
+data1_2022_Q1$ntrans_ema_120 <- abs(diff.xts(data1_2022_Q1$position_ema_120))
+
+```
+
+```{r}
+# Set the first transaction value to 0, as there's no previous position to compare
+data1_2022_Q1$ntrans_ema_120[1] <- 0
+
+```
+
+### Net profit for EMA 120 
+```{r Net profit for 2022 Q1}
+# Calculate net profit by subtracting transaction costs (based on the number of transactions and a cost factor of 12) from the gross profit
+data1_2022_Q1$net_profit_ema_120 <- data1_2022_Q1$gross_profit_ema_120 - data1_2022_Q1$ntrans_ema_120 * 12
+
+```
+
+```{r}
+# Plot the cumulative sum of the net profit to visualize the overall performance over time
+chartSeries(cumsum(data1_2022_Q1$net_profit_ema_120), 
+            name = "Cumulative Net Profit for EMA 120 Strategy")
+
+```
+
+## Volatility breakout strategy using EMA 60 and SD 120
+```{r}
+# Calculate the 60-period rolling mean of 'NQ' after filling missing values using the last observation carried forward
+data1_2022_Q1$mean_60 <- roll_mean(na.locf(data1_2022_Q1$NQ, na.rm = FALSE), 60)
+```
+
+```{r}
+# Calculate the 120-period rolling standard deviation of 'NQ' after filling missing values using the last observation carried forward
+data1_2022_Q1$sd_120 <- roll_sd(na.locf(data1_2022_Q1$NQ, na.rm = FALSE), 120)
+```
+
+```{r}
+# Measure the execution time for calculating the position based on a strategy using the 'positionVB' function
+system.time(
+  data1_2022_Q1$position_sd_ema <- 
+    positionVB(signal = data1_2022_Q1$NQ,
+               upper = data1_2022_Q1$mean_60 + 1.5 * data1_2022_Q1$sd_120,  # Upper bound based on 60-period mean and 1.5 times 120-period SD
+               lower = data1_2022_Q1$mean_60 - 1.5 * data1_2022_Q1$sd_120,  # Lower bound based on 60-period mean and 1.5 times 120-period SD
+               times_data = times_data_2022_Q1,  # Column with times
+               time_lower = "09:40:00", # Start time for trading
+               time_upper = "15:50:00", # Exit time for all positions
+               strategy = "mom"  # Momentum strategy
+  )
+)
+```
+
+```{r}
+# Fill missing position values with the most recent non-missing value (Last Observation Carried Forward)
+data1_2022_Q1$position_sd_ema <- na.locf(data1_2022_Q1$position_sd_ema,
+                                          na.rm = FALSE)
+```
+
+### Gross profit of volatility breakout strategy
+```{r}
+# Calculate gross profit for the strategy by multiplying position with the change in 'NQ' prices and a factor of 20
+data1_2022_Q1$gross_profit_sd_ema <- data1_2022_Q1$position_sd_ema * diff.xts(data1_2022_Q1$NQ) * 20
+
+```
+
+```{r}
+# Replace any missing values in the gross profit column with 0
+data1_2022_Q1$gross_profit_sd_ema[is.na(data1_2022_Q1$gross_profit_sd_ema)] <- 0
+chartSeries(cumsum(data1_2022_Q1$gross_profit_sd_ema),
+            name = "Cumulative gross Profit of (EMA 60 + SD 120)")
+```
+
+```{r}
+# Identify transactions by calculating the absolute change in position ('position_sd_ema')
+data1_2022_Q1$ntrans_sd_ema <- abs(diff.xts(data1_2022_Q1$position_sd_ema))
+```
+
+```{r}
+# Set the first transaction value to 0, as there's no previous position to compare
+data1_2022_Q1$ntrans_sd_ema[1] <- 0
+```
+
+### Net profit of volatility breakout strategy
+```{r}
+# Calculate net profit by subtracting transaction costs (based on the number of transactions and a cost factor of 12) from the gross profit
+data1_2022_Q1$net_profit_sd_ema <- data1_2022_Q1$gross_profit_sd_ema - data1_2022_Q1$ntrans_sd_ema * 12
+```
+
+```{r}
+# Plot the cumulative net profit over time using a chart, based on the 'net_profit_sd_ema' column
+chartSeries(cumsum(data1_2022_Q1$net_profit_sd_ema), 
+            name = "Cumulative Net Profit for (EMA 60 + SD 120)")
+
+```
+
+# Strategies based on 2022 Q2
+```{r}
+data1_2022_Q2["T09:31/T09:35",] <- NA # Remove data between 09:31 and 09:35 by setting it to NA
+data1_2022_Q2["T15:56/T16:00",] <- NA # Remove data between 15:56 and 16:00 by setting it to NA
+
+```
+
+## Single EMA of 'NQ' with a 120-period window
+```{r}
+data1_2022_Q2$ema_120 <- EMA(na.locf(data1_2022_Q2$NQ, 
+                                   na.rm = FALSE),
+                           120) # Calculate the 120-period EMA of 'NQ' after filling missing values using the last observation carried forward
+
+```
+
+```{r}
+data1_2022_Q2$ema_120[is.na(data1_2022_Q2$NQ)] <- NA # Set EMA values to NA where the original 'NQ' values are missing
+
+```
+
+```{r Generate trading positions 2022 Q2}
+data1_2022_Q2$position_ema_120 <- ifelse(lag.xts(data1_2022_Q2$NQ) > 
+                                 lag.xts(data1_2022_Q2$ema_120), 1, -1) # Generate trading positions: 1 if 'NQ' is above its lagged EMA, -1 otherwise
+
+```
+
+```{r}
+# Set trading positions to 0 outside the active trading window (before 09:40:00 or after 15:50:00)
+data1_2022_Q2$position_ema_120[times(times_data_2022_Q2) <= times("9:40:00") | 
+                         times(times_data_2022_Q2) > times("15:50:00")] <- 0
+```
+
+```{r}
+# Fill missing positions with the most recent non-missing value (Last Observation Carried Forward)
+data1_2022_Q2$position_ema_120 <- na.locf(data1_2022_Q2$position_ema_120,
+                                  na.rm = FALSE)
+
+```
+
+### Gross profit for Single EMA
+```{r Gross profit ema_120 2022 Q2}
+# Calculate gross profit based on the position (ema_120), the change in 'NQ' prices, and a factor of 20
+data1_2022_Q2$gross_profit_ema_120 <- data1_2022_Q2$position_ema_120 * diff.xts(data1_2022_Q2$NQ) * 20
+
+```
+
+```{r}
+# Set any missing values in 'gross_profit_ema_120' to 0
+data1_2022_Q2$gross_profit_ema_120[is.na(data1_2022_Q2$gross_profit_ema_120)] <- 0
+chartSeries(cumsum(data1_2022_Q2$gross_profit_ema_120),
+            name = "Cumulative gross profit of EMA_120")
+```
+
+```{r Identify transactions 2022 Q2}
+# Identify transactions by calculating the absolute change in position (every time the position changes)
+data1_2022_Q2$ntrans_ema_120 <- abs(diff.xts(data1_2022_Q2$position_ema_120))
+
+```
+
+```{r}
+# Set the first transaction value to 0, as there's no previous position to compare
+data1_2022_Q2$ntrans_ema_120[1] <- 0
+
+```
+
+### Net profit for EMA 120 
+```{r Net profit for 2022 Q2}
+# Calculate net profit by subtracting transaction costs (based on the number of transactions and a cost factor of 12) from the gross profit
+data1_2022_Q2$net_profit_ema_120 <- data1_2022_Q2$gross_profit_ema_120 - data1_2022_Q2$ntrans_ema_120 * 12
+
+```
+
+```{r}
+# Plot the cumulative sum of the net profit to visualize the overall performance over time
+chartSeries(cumsum(data1_2022_Q2$net_profit_ema_120), 
+            name = "Cumulative Net Profit for EMA 120")
+
+```
+
+## Volatility breakout strategy using EMA 60 and SD 120
+```{r}
+# Calculate the 60-period rolling mean of 'NQ' after filling missing values using the last observation carried forward
+data1_2022_Q2$mean_60 <- roll_mean(na.locf(data1_2022_Q2$NQ, na.rm = FALSE), 60)
+```
+
+```{r}
+# Calculate the 120-period rolling standard deviation of 'NQ' after filling missing values using the last observation carried forward
+data1_2022_Q2$sd_120 <- roll_sd(na.locf(data1_2022_Q2$NQ, na.rm = FALSE), 120)
+```
+
+```{r}
+# Measure the execution time for calculating the position based on a strategy using the 'positionVB' function
+system.time(
+  data1_2022_Q2$position_sd_ema <- 
+    positionVB(signal = data1_2022_Q2$NQ,
+               upper = data1_2022_Q2$mean_60 + 1.5 * data1_2022_Q2$sd_120,  # Upper bound based on 60-period mean and 1.5 times 120-period SD
+               lower = data1_2022_Q2$mean_60 - 1.5 * data1_2022_Q2$sd_120,  # Lower bound based on 60-period mean and 1.5 times 120-period SD
+               times_data = times_data_2022_Q2,  # Column with times
+               time_lower = "09:40:00", # Start time for trading
+               time_upper = "15:50:00", # Exit time for all positions
+               strategy = "mom"  # Momentum strategy
+  )
+)
+```
+
+```{r}
+# Fill missing position values with the most recent non-missing value (Last Observation Carried Forward)
+data1_2022_Q2$position_sd_ema <- na.locf(data1_2022_Q2$position_sd_ema,
+                                          na.rm = FALSE)
+```
+
+### Gross profit of volatility breakout strategy
+```{r}
+# Calculate gross profit for the strategy by multiplying position with the change in 'NQ' prices and a factor of 20
+data1_2022_Q2$gross_profit_sd_ema <- data1_2022_Q2$position_sd_ema * diff.xts(data1_2022_Q2$NQ) * 20
+
+```
+
+```{r}
+# Replace any missing values in the gross profit column with 0
+data1_2022_Q2$gross_profit_sd_ema[is.na(data1_2022_Q2$gross_profit_sd_ema)] <- 0
+chartSeries(cumsum(data1_2022_Q2$gross_profit_sd_ema),
+            name = "Cumulative gross profit of (EMA 60 + SD 120)")
+```
+
+```{r}
+# Identify transactions by calculating the absolute change in position ('position_sd_ema')
+data1_2022_Q2$ntrans_sd_ema <- abs(diff.xts(data1_2022_Q2$position_sd_ema))
+```
+
+```{r}
+# Set the first transaction value to 0, as there's no previous position to compare
+data1_2022_Q2$ntrans_sd_ema[1] <- 0
+```
+
+### Net profit of volatility breakout strategy
+```{r}
+# Calculate net profit by subtracting transaction costs (based on the number of transactions and a cost factor of 12) from the gross profit
+data1_2022_Q2$net_profit_sd_ema <- data1_2022_Q2$gross_profit_sd_ema - data1_2022_Q2$ntrans_sd_ema * 12
+```
+
+```{r}
+# Plot the cumulative net profit over time using a chart, based on the 'net_profit_sd_ema' column
+chartSeries(cumsum(data1_2022_Q2$net_profit_sd_ema), 
+            name = "Cumulative Net Profit for (EMA 60 + SD 120)")
+
+```
+
+# Strategies based on 2022 Q3
+```{r}
+data1_2022_Q3["T09:31/T09:35",] <- NA # Remove data between 09:31 and 09:35 by setting it to NA
+data1_2022_Q3["T15:56/T16:00",] <- NA # Remove data between 15:56 and 16:00 by setting it to NA
+
+```
+
+## Single EMA of 'NQ' with a 120-period window
+```{r}
+data1_2022_Q3$ema_120 <- EMA(na.locf(data1_2022_Q3$NQ, 
+                                   na.rm = FALSE),
+                           120) # Calculate the 120-period EMA of 'NQ' after filling missing values using the last observation carried forward
+
+```
+
+```{r}
+data1_2022_Q3$ema_120[is.na(data1_2022_Q3$NQ)] <- NA # Set EMA values to NA where the original 'NQ' values are missing
+
+```
+
+```{r Generate trading positions 2022 Q3}
+data1_2022_Q3$position_ema_120 <- ifelse(lag.xts(data1_2022_Q3$NQ) > 
+                                 lag.xts(data1_2022_Q3$ema_120), 1, -1) # Generate trading positions: 1 if 'NQ' is above its lagged EMA, -1 otherwise
+
+```
+
+```{r}
+# Set trading positions to 0 outside the active trading window (before 09:40:00 or after 15:50:00)
+data1_2022_Q3$position_ema_120[times(times_data_2022_Q3) <= times("9:40:00") | 
+                         times(times_data_2022_Q3) > times("15:50:00")] <- 0
+```
+
+```{r}
+# Fill missing positions with the most recent non-missing value (Last Observation Carried Forward)
+data1_2022_Q3$position_ema_120 <- na.locf(data1_2022_Q3$position_ema_120,
+                                  na.rm = FALSE)
+
+```
+
+### Gross profit for Single EMA
+```{r Gross profit ema_120 2022 Q3}
+# Calculate gross profit based on the position (ema_120), the change in 'NQ' prices, and a factor of 20
+data1_2022_Q3$gross_profit_ema_120 <- data1_2022_Q3$position_ema_120 * diff.xts(data1_2022_Q3$NQ) * 20
+
+```
+
+```{r}
+# Set any missing values in 'gross_profit_ema_120' to 0
+data1_2022_Q3$gross_profit_ema_120[is.na(data1_2022_Q3$gross_profit_ema_120)] <- 0
+chartSeries(cumsum(data1_2022_Q3$gross_profit_ema_120),
+            name = "Cumulative gross profit of EMA_120")
+```
+
+```{r Identify transactions 2022 Q3}
+# Identify transactions by calculating the absolute change in position (every time the position changes)
+data1_2022_Q3$ntrans_ema_120 <- abs(diff.xts(data1_2022_Q3$position_ema_120))
+
+```
+
+```{r}
+# Set the first transaction value to 0, as there's no previous position to compare
+data1_2022_Q3$ntrans_ema_120[1] <- 0
+
+```
+
+### Net profit for EMA 120 
+```{r Net profit for 2022 Q3}
+# Calculate net profit by subtracting transaction costs (based on the number of transactions and a cost factor of 12) from the gross profit
+data1_2022_Q3$net_profit_ema_120 <- data1_2022_Q3$gross_profit_ema_120 - data1_2022_Q3$ntrans_ema_120 * 12
+
+```
+
+```{r}
+# Plot the cumulative sum of the net profit to visualize the overall performance over time
+chartSeries(cumsum(data1_2022_Q3$net_profit_ema_120), 
+            name = "Cumulative Net Profit for EMA 120 Strategy")
+```
+
+## Volatility breakout strategy using EMA 60 and SD 120
+```{r}
+# Calculate the 60-period rolling mean of 'NQ' after filling missing values using the last observation carried forward
+data1_2022_Q3$mean_60 <- roll_mean(na.locf(data1_2022_Q3$NQ, na.rm = FALSE), 60)
+```
+
+```{r}
+# Calculate the 120-period rolling standard deviation of 'NQ' after filling missing values using the last observation carried forward
+data1_2022_Q3$sd_120 <- roll_sd(na.locf(data1_2022_Q3$NQ, na.rm = FALSE), 120)
+```
+
+```{r}
+# Measure the execution time for calculating the position based on a strategy using the 'positionVB' function
+system.time(
+  data1_2022_Q3$position_sd_ema <- 
+    positionVB(signal = data1_2022_Q3$NQ,
+               upper = data1_2022_Q3$mean_60 + 1.5 * data1_2022_Q3$sd_120,  # Upper bound based on 60-period mean and 1.5 times 120-period SD
+               lower = data1_2022_Q3$mean_60 - 1.5 * data1_2022_Q3$sd_120,  # Lower bound based on 60-period mean and 1.5 times 120-period SD
+               times_data = times_data_2022_Q3,  # Column with times
+               time_lower = "09:40:00", # Start time for trading
+               time_upper = "15:50:00", # Exit time for all positions
+               strategy = "mom"  # Momentum strategy
+  )
+)
+```
+
+```{r}
+# Fill missing position values with the most recent non-missing value (Last Observation Carried Forward)
+data1_2022_Q3$position_sd_ema <- na.locf(data1_2022_Q3$position_sd_ema,
+                                          na.rm = FALSE)
+```
+
+### Gross profit of volatility breakout strategy
+```{r}
+# Calculate gross profit for the strategy by multiplying position with the change in 'NQ' prices and a factor of 20
+data1_2022_Q3$gross_profit_sd_ema <- data1_2022_Q3$position_sd_ema * diff.xts(data1_2022_Q3$NQ) * 20
+
+```
+
+```{r}
+# Replace any missing values in the gross profit column with 0
+data1_2022_Q3$gross_profit_sd_ema[is.na(data1_2022_Q3$gross_profit_sd_ema)] <- 0
+chartSeries(cumsum(data1_2022_Q3$gross_profit_sd_ema),
+            name = "Cumulative gross profit of (EMA 60 + SD 120)")
+```
+
+```{r}
+# Identify transactions by calculating the absolute change in position ('position_sd_ema')
+data1_2022_Q3$ntrans_sd_ema <- abs(diff.xts(data1_2022_Q3$position_sd_ema))
+```
+
+```{r}
+# Set the first transaction value to 0, as there's no previous position to compare
+data1_2022_Q3$ntrans_sd_ema[1] <- 0
+```
+
+### Net profit of volatility breakout strategy
+```{r}
+# Calculate net profit by subtracting transaction costs (based on the number of transactions and a cost factor of 12) from the gross profit
+data1_2022_Q3$net_profit_sd_ema <- data1_2022_Q3$gross_profit_sd_ema - data1_2022_Q3$ntrans_sd_ema * 12
+```
+
+```{r}
+# Plot the cumulative net profit over time using a chart, based on the 'net_profit_sd_ema' column
+chartSeries(cumsum(data1_2022_Q3$net_profit_sd_ema), 
+            name = "Cumulative Net Profit for (EMA 60 + SD 120)")
+
+```
+
+# Strategies based on 2022 Q4
+```{r}
+data1_2022_Q4["T09:31/T09:35",] <- NA # Remove data between 09:31 and 09:35 by setting it to NA
+data1_2022_Q4["T15:56/T16:00",] <- NA # Remove data between 15:56 and 16:00 by setting it to NA
+
+```
+
+## Single EMA of 'NQ' with a 120-period window
+```{r}
+data1_2022_Q4$ema_120 <- EMA(na.locf(data1_2022_Q4$NQ, 
+                                   na.rm = FALSE),
+                           120) # Calculate the 120-period EMA of 'NQ' after filling missing values using the last observation carried forward
+
+```
+
+```{r}
+data1_2022_Q4$ema_120[is.na(data1_2022_Q4$NQ)] <- NA # Set EMA values to NA where the original 'NQ' values are missing
+
+```
+
+```{r Generate trading positions 2022 Q4}
+data1_2022_Q4$position_ema_120 <- ifelse(lag.xts(data1_2022_Q4$NQ) > 
+                                 lag.xts(data1_2022_Q4$ema_120), 1, -1) # Generate trading positions: 1 if 'NQ' is above its lagged EMA, -1 otherwise
+
+```
+
+```{r}
+# Set trading positions to 0 outside the active trading window (before 09:40:00 or after 15:50:00)
+data1_2022_Q4$position_ema_120[times(times_data_2022_Q4) <= times("9:40:00") | 
+                         times(times_data_2022_Q4) > times("15:50:00")] <- 0
+```
+
+```{r}
+# Fill missing positions with the most recent non-missing value (Last Observation Carried Forward)
+data1_2022_Q4$position_ema_120 <- na.locf(data1_2022_Q4$position_ema_120,
+                                  na.rm = FALSE)
+
+```
+
+### Gross profit for Single EMA
+```{r Gross profit ema_120 2022 Q4}
+# Calculate gross profit based on the position (ema_120), the change in 'NQ' prices, and a factor of 20
+data1_2022_Q4$gross_profit_ema_120 <- data1_2022_Q4$position_ema_120 * diff.xts(data1_2022_Q4$NQ) * 20
+
+```
+
+```{r}
+# Set any missing values in 'gross_profit_ema_120' to 0
+data1_2022_Q4$gross_profit_ema_120[is.na(data1_2022_Q4$gross_profit_ema_120)] <- 0
+chartSeries(cumsum(data1_2022_Q4$gross_profit_ema_120),
+             name = "Cumulative gross profit of EMA_120")
+```
+
+```{r Identify transactions 2022 Q4}
+# Identify transactions by calculating the absolute change in position (every time the position changes)
+data1_2022_Q4$ntrans_ema_120 <- abs(diff.xts(data1_2022_Q4$position_ema_120))
+
+```
+
+```{r}
+# Set the first transaction value to 0, as there's no previous position to compare
+data1_2022_Q4$ntrans_ema_120[1] <- 0
+
+```
+
+### Net profit for EMA 120 
+```{r Net profit for 2022 Q4}
+# Calculate net profit by subtracting transaction costs (based on the number of transactions and a cost factor of 12) from the gross profit
+data1_2022_Q4$net_profit_ema_120 <- data1_2022_Q4$gross_profit_ema_120 - data1_2022_Q4$ntrans_ema_120 * 12
+
+```
+
+```{r}
+# Plot the cumulative sum of the net profit to visualize the overall performance over time
+chartSeries(cumsum(data1_2022_Q4$net_profit_ema_120), 
+            name = "Cumulative Net Profit for EMA 120 Strategy")
+```
+
+## Volatility breakout strategy using EMA 60 and SD 120
+```{r}
+# Calculate the 60-period rolling mean of 'NQ' after filling missing values using the last observation carried forward
+data1_2022_Q4$mean_60 <- roll_mean(na.locf(data1_2022_Q4$NQ, na.rm = FALSE), 60)
+```
+
+```{r}
+# Calculate the 120-period rolling standard deviation of 'NQ' after filling missing values using the last observation carried forward
+data1_2022_Q4$sd_120 <- roll_sd(na.locf(data1_2022_Q4$NQ, na.rm = FALSE), 120)
+```
+
+```{r}
+# Measure the execution time for calculating the position based on a strategy using the 'positionVB' function
+system.time(
+  data1_2022_Q4$position_sd_ema <- 
+    positionVB(signal = data1_2022_Q4$NQ,
+               upper = data1_2022_Q4$mean_60 + 1.5 * data1_2022_Q4$sd_120,  # Upper bound based on 60-period mean and 1.5 times 120-period SD
+               lower = data1_2022_Q4$mean_60 - 1.5 * data1_2022_Q4$sd_120,  # Lower bound based on 60-period mean and 1.5 times 120-period SD
+               times_data = times_data_2022_Q4,  # Column with times
+               time_lower = "09:40:00", # Start time for trading
+               time_upper = "15:50:00", # Exit time for all positions
+               strategy = "mom"  # Momentum strategy
+  )
+)
+```
+
+```{r}
+# Fill missing position values with the most recent non-missing value (Last Observation Carried Forward)
+data1_2022_Q4$position_sd_ema <- na.locf(data1_2022_Q4$position_sd_ema,
+                                          na.rm = FALSE)
+```
+
+### Gross profit of volatility breakout strategy
+```{r}
+# Calculate gross profit for the strategy by multiplying position with the change in 'NQ' prices and a factor of 20
+data1_2022_Q4$gross_profit_sd_ema <- data1_2022_Q4$position_sd_ema * diff.xts(data1_2022_Q4$NQ) * 20
+
+```
+
+```{r}
+# Replace any missing values in the gross profit column with 0
+data1_2022_Q4$gross_profit_sd_ema[is.na(data1_2022_Q4$gross_profit_sd_ema)] <- 0
+chartSeries(cumsum(data1_2022_Q4$gross_profit_sd_ema),
+            name = "Cumulative gross profit of (EMA 60 + SD 120)")
+```
+
+```{r}
+# Identify transactions by calculating the absolute change in position ('position_sd_ema')
+data1_2022_Q4$ntrans_sd_ema <- abs(diff.xts(data1_2022_Q4$position_sd_ema))
+```
+
+```{r}
+# Set the first transaction value to 0, as there's no previous position to compare
+data1_2022_Q4$ntrans_sd_ema[1] <- 0
+```
+
+### Net profit of volatility breakout strategy
+```{r}
+# Calculate net profit by subtracting transaction costs (based on the number of transactions and a cost factor of 12) from the gross profit
+data1_2022_Q4$net_profit_sd_ema <- data1_2022_Q4$gross_profit_sd_ema - data1_2022_Q4$ntrans_sd_ema * 12
+```
+
+```{r}
+# Plot the cumulative net profit over time using a chart, based on the 'net_profit_sd_ema' column
+chartSeries(cumsum(data1_2022_Q4$net_profit_sd_ema), 
+            name = "Cumulative Net Profit for Volatility Breakout Strategy (EMA 60 + SD 120)")
+```
+
+# Strategies based on 2023 Q1
+```{r}
+data1_2023_Q1["T09:31/T09:35",] <- NA # Remove data between 09:31 and 09:35 by setting it to NA
+data1_2023_Q1["T15:56/T16:00",] <- NA # Remove data between 15:56 and 16:00 by setting it to NA
+
+```
+
+## Single EMA of 'NQ' with a 120-period window
+```{r}
+data1_2023_Q1$ema_120 <- EMA(na.locf(data1_2023_Q1$NQ, 
+                                   na.rm = FALSE),
+                           120) # Calculate the 120-period EMA of 'NQ' after filling missing values using the last observation carried forward
+
+```
+
+```{r}
+data1_2023_Q1$ema_120[is.na(data1_2023_Q1$NQ)] <- NA # Set EMA values to NA where the original 'NQ' values are missing
+
+```
+
+```{r Generate trading positions 2023 Q1}
+data1_2023_Q1$position_ema_120 <- ifelse(lag.xts(data1_2023_Q1$NQ) > 
+                                 lag.xts(data1_2023_Q1$ema_120), 1, -1) # Generate trading positions: 1 if 'NQ' is above its lagged EMA, -1 otherwise
+
+```
+
+```{r}
+# Set trading positions to 0 outside the active trading window (before 09:40:00 or after 15:50:00)
+data1_2023_Q1$position_ema_120[times(times_data_2023_Q1) <= times("9:40:00") | 
+                         times(times_data_2023_Q1) > times("15:50:00")] <- 0
+```
+
+```{r}
+# Fill missing positions with the most recent non-missing value (Last Observation Carried Forward)
+data1_2023_Q1$position_ema_120 <- na.locf(data1_2023_Q1$position_ema_120,
+                                  na.rm = FALSE)
+
+```
+
+### Gross profit for Single EMA
+```{r Gross profit ema_120 2023 Q1}
+# Calculate gross profit based on the position (ema_120), the change in 'NQ' prices, and a factor of 20
+data1_2023_Q1$gross_profit_ema_120 <- data1_2023_Q1$position_ema_120 * diff.xts(data1_2023_Q1$NQ) * 20
+
+```
+
+```{r}
+# Set any missing values in 'gross_profit_ema_120' to 0
+data1_2023_Q1$gross_profit_ema_120[is.na(data1_2023_Q1$gross_profit_ema_120)] <- 0
+chartSeries(cumsum(data1_2023_Q1$gross_profit_ema_120),
+            name = "Cumulative gross profit of EMA_120")
+```
+
+```{r Identify transactions 2023 Q1}
+# Identify transactions by calculating the absolute change in position (every time the position changes)
+data1_2023_Q1$ntrans_ema_120 <- abs(diff.xts(data1_2023_Q1$position_ema_120))
+
+```
+
+```{r}
+# Set the first transaction value to 0, as there's no previous position to compare
+data1_2023_Q1$ntrans_ema_120[1] <- 0
+
+```
+
+### Net profit for EMA 120 
+```{r Net profit for 2023 Q1}
+# Calculate net profit by subtracting transaction costs (based on the number of transactions and a cost factor of 12) from the gross profit
+data1_2023_Q1$net_profit_ema_120 <- data1_2023_Q1$gross_profit_ema_120 - data1_2023_Q1$ntrans_ema_120 * 12
+
+```
+
+```{r}
+# Plot the cumulative sum of the net profit to visualize the overall performance over time
+chartSeries(cumsum(data1_2023_Q1$net_profit_ema_120), 
+            name = "Cumulative Net Profit for EMA 120 Strategy")
+
+```
+
+## Volatility breakout strategy using EMA 60 and SD 120
+```{r}
+# Calculate the 60-period rolling mean of 'NQ' after filling missing values using the last observation carried forward
+data1_2023_Q1$mean_60 <- roll_mean(na.locf(data1_2023_Q1$NQ, na.rm = FALSE), 60)
+```
+
+```{r}
+# Calculate the 120-period rolling standard deviation of 'NQ' after filling missing values using the last observation carried forward
+data1_2023_Q1$sd_120 <- roll_sd(na.locf(data1_2023_Q1$NQ, na.rm = FALSE), 120)
+```
+
+```{r}
+# Measure the execution time for calculating the position based on a strategy using the 'positionVB' function
+system.time(
+  data1_2023_Q1$position_sd_ema <- 
+    positionVB(signal = data1_2023_Q1$NQ,
+               upper = data1_2023_Q1$mean_60 + 1.5 * data1_2023_Q1$sd_120,  # Upper bound based on 60-period mean and 1.5 times 120-period SD
+               lower = data1_2023_Q1$mean_60 - 1.5 * data1_2023_Q1$sd_120,  # Lower bound based on 60-period mean and 1.5 times 120-period SD
+               times_data = times_data_2023_Q1,  # Column with times
+               time_lower = "09:40:00", # Start time for trading
+               time_upper = "15:50:00", # Exit time for all positions
+               strategy = "mom"  # Momentum strategy
+  )
+)
+```
+
+```{r}
+# Fill missing position values with the most recent non-missing value (Last Observation Carried Forward)
+data1_2023_Q1$position_sd_ema <- na.locf(data1_2023_Q1$position_sd_ema,
+                                          na.rm = FALSE)
+```
+
+### Gross profit of volatility breakout strategy
+```{r}
+# Calculate gross profit for the strategy by multiplying position with the change in 'NQ' prices and a factor of 20
+data1_2023_Q1$gross_profit_sd_ema <- data1_2023_Q1$position_sd_ema * diff.xts(data1_2023_Q1$NQ) * 20
+
+```
+
+```{r}
+# Replace any missing values in the gross profit column with 0
+data1_2023_Q1$gross_profit_sd_ema[is.na(data1_2023_Q1$gross_profit_sd_ema)] <- 0
+chartSeries(cumsum(data1_2023_Q1$gross_profit_sd_ema),
+            name = "Cumulative gross profit of (EMA 60 + SD 120)")
+```
+
+```{r}
+# Identify transactions by calculating the absolute change in position ('position_sd_ema')
+data1_2023_Q1$ntrans_sd_ema <- abs(diff.xts(data1_2023_Q1$position_sd_ema))
+```
+
+```{r}
+# Set the first transaction value to 0, as there's no previous position to compare
+data1_2023_Q1$ntrans_sd_ema[1] <- 0
+```
+
+### Net profit of volatility breakout strategy
+```{r}
+# Calculate net profit by subtracting transaction costs (based on the number of transactions and a cost factor of 12) from the gross profit
+data1_2023_Q1$net_profit_sd_ema <- data1_2023_Q1$gross_profit_sd_ema - data1_2023_Q1$ntrans_sd_ema * 12
+```
+
+```{r}
+# Plot the cumulative net profit over time using a chart, based on the 'net_profit_sd_ema' column
+chartSeries(cumsum(data1_2023_Q1$net_profit_sd_ema), 
+            name = "Cumulative Net Profit for (EMA 60 + SD 120)")
+
+```
+
+# Strategies based on 2023 Q2
+```{r}
+data1_2023_Q2["T09:31/T09:35",] <- NA # Remove data between 09:31 and 09:35 by setting it to NA
+data1_2023_Q2["T15:56/T16:00",] <- NA # Remove data between 15:56 and 16:00 by setting it to NA
+
+```
+
+## Single EMA of 'NQ' with a 120-period window
+```{r}
+data1_2023_Q2$ema_120 <- EMA(na.locf(data1_2023_Q2$NQ, 
+                                   na.rm = FALSE),
+                           120) # Calculate the 120-period EMA of 'NQ' after filling missing values using the last observation carried forward
+
+```
+
+```{r}
+data1_2023_Q2$ema_120[is.na(data1_2023_Q2$NQ)] <- NA # Set EMA values to NA where the original 'NQ' values are missing
+
+```
+
+```{r Generate trading positions 2023 Q2}
+data1_2023_Q2$position_ema_120 <- ifelse(lag.xts(data1_2023_Q2$NQ) > 
+                                 lag.xts(data1_2023_Q2$ema_120), 1, -1) # Generate trading positions: 1 if 'NQ' is above its lagged EMA, -1 otherwise
+
+```
+
+```{r}
+# Set trading positions to 0 outside the active trading window (before 09:40:00 or after 15:50:00)
+data1_2023_Q2$position_ema_120[times(times_data_2023_Q2) <= times("9:40:00") | 
+                         times(times_data_2023_Q2) > times("15:50:00")] <- 0
+```
+
+```{r}
+# Fill missing positions with the most recent non-missing value (Last Observation Carried Forward)
+data1_2023_Q2$position_ema_120 <- na.locf(data1_2023_Q2$position_ema_120,
+                                  na.rm = FALSE)
+
+```
+
+### Gross profit for Single EMA
+```{r Gross profit ema_120 2023 Q2}
+# Calculate gross profit based on the position (ema_120), the change in 'NQ' prices, and a factor of 20
+data1_2023_Q2$gross_profit_ema_120 <- data1_2023_Q2$position_ema_120 * diff.xts(data1_2023_Q2$NQ) * 20
+
+```
+
+```{r}
+# Set any missing values in 'gross_profit_ema_120' to 0
+data1_2023_Q2$gross_profit_ema_120[is.na(data1_2023_Q2$gross_profit_ema_120)] <- 0
+chartSeries(cumsum(data1_2023_Q2$gross_profit_ema_120),
+            name = "Cumulative gross profit of EMA_120")
+```
+
+```{r Identify transactions 2023 Q2}
+# Identify transactions by calculating the absolute change in position (every time the position changes)
+data1_2023_Q2$ntrans_ema_120 <- abs(diff.xts(data1_2023_Q2$position_ema_120))
+
+```
+
+```{r}
+# Set the first transaction value to 0, as there's no previous position to compare
+data1_2023_Q2$ntrans_ema_120[1] <- 0
+
+```
+
+### Net profit for EMA 120 
+```{r Net profit for 2023 Q2}
+# Calculate net profit by subtracting transaction costs (based on the number of transactions and a cost factor of 12) from the gross profit
+data1_2023_Q2$net_profit_ema_120 <- data1_2023_Q2$gross_profit_ema_120 - data1_2023_Q2$ntrans_ema_120 * 12
+
+```
+
+```{r}
+# Plot the cumulative sum of the net profit to visualize the overall performance over time
+chartSeries(cumsum(data1_2023_Q2$net_profit_ema_120), 
+            name = "Cumulative Net Profit for EMA 120 Strategy")
+```
+
+## Volatility breakout strategy using EMA 60 and SD 120
+```{r}
+# Calculate the 60-period rolling mean of 'NQ' after filling missing values using the last observation carried forward
+data1_2023_Q2$mean_60 <- roll_mean(na.locf(data1_2023_Q2$NQ, na.rm = FALSE), 60)
+```
+
+```{r}
+# Calculate the 120-period rolling standard deviation of 'NQ' after filling missing values using the last observation carried forward
+data1_2023_Q2$sd_120 <- roll_sd(na.locf(data1_2023_Q2$NQ, na.rm = FALSE), 120)
+```
+
+```{r}
+# Measure the execution time for calculating the position based on a strategy using the 'positionVB' function
+system.time(
+  data1_2023_Q2$position_sd_ema <- 
+    positionVB(signal = data1_2023_Q2$NQ,
+               upper = data1_2023_Q2$mean_60 + 1.5 * data1_2023_Q2$sd_120,  # Upper bound based on 60-period mean and 1.5 times 120-period SD
+               lower = data1_2023_Q2$mean_60 - 1.5 * data1_2023_Q2$sd_120,  # Lower bound based on 60-period mean and 1.5 times 120-period SD
+               times_data = times_data_2023_Q2,  # Column with times
+               time_lower = "09:40:00", # Start time for trading
+               time_upper = "15:50:00", # Exit time for all positions
+               strategy = "mom"  # Momentum strategy
+  )
+)
+```
+
+```{r}
+# Fill missing position values with the most recent non-missing value (Last Observation Carried Forward)
+data1_2023_Q2$position_sd_ema <- na.locf(data1_2023_Q2$position_sd_ema,
+                                          na.rm = FALSE)
+```
+
+### Gross profit of volatility breakout strategy
+```{r}
+# Calculate gross profit for the strategy by multiplying position with the change in 'NQ' prices and a factor of 20
+data1_2023_Q2$gross_profit_sd_ema <- data1_2023_Q2$position_sd_ema * diff.xts(data1_2023_Q2$NQ) * 20
+
+```
+
+```{r}
+# Replace any missing values in the gross profit column with 0
+data1_2023_Q2$gross_profit_sd_ema[is.na(data1_2023_Q2$gross_profit_sd_ema)] <- 0
+chartSeries(cumsum(data1_2023_Q2$gross_profit_sd_ema),
+            name = "Cumulative gross profit of (EMA 60 + SD 120)")
+```
+
+```{r}
+# Identify transactions by calculating the absolute change in position ('position_sd_ema')
+data1_2023_Q2$ntrans_sd_ema <- abs(diff.xts(data1_2023_Q2$position_sd_ema))
+```
+
+```{r}
+# Set the first transaction value to 0, as there's no previous position to compare
+data1_2023_Q2$ntrans_sd_ema[1] <- 0
+```
+
+### Net profit of volatility breakout strategy
+```{r}
+# Calculate net profit by subtracting transaction costs (based on the number of transactions and a cost factor of 12) from the gross profit
+data1_2023_Q2$net_profit_sd_ema <- data1_2023_Q2$gross_profit_sd_ema - data1_2023_Q2$ntrans_sd_ema * 12
+```
+
+```{r}
+# Plot the cumulative net profit over time using a chart, based on the 'net_profit_sd_ema' column
+chartSeries(cumsum(data1_2023_Q2$net_profit_sd_ema), 
+            name = "Cumulative Net Profit for (EMA 60 + SD 120)")
+```
+
+# Strategies based on 2023 Q3
+```{r}
+data1_2023_Q3["T09:31/T09:35",] <- NA # Remove data between 09:31 and 09:35 by setting it to NA
+data1_2023_Q3["T15:56/T16:00",] <- NA # Remove data between 15:56 and 16:00 by setting it to NA
+
+```
+
+## Single EMA of 'NQ' with a 120-period window
+```{r}
+data1_2023_Q3$ema_120 <- EMA(na.locf(data1_2023_Q3$NQ, 
+                                   na.rm = FALSE),
+                           120) # Calculate the 120-period EMA of 'NQ' after filling missing values using the last observation carried forward
+
+```
+
+```{r}
+data1_2023_Q3$ema_120[is.na(data1_2023_Q3$NQ)] <- NA # Set EMA values to NA where the original 'NQ' values are missing
+
+```
+
+```{r Generate trading positions 2023 Q3}
+data1_2023_Q3$position_ema_120 <- ifelse(lag.xts(data1_2023_Q3$NQ) > 
+                                 lag.xts(data1_2023_Q3$ema_120), 1, -1) # Generate trading positions: 1 if 'NQ' is above its lagged EMA, -1 otherwise
+
+```
+
+```{r}
+# Set trading positions to 0 outside the active trading window (before 09:40:00 or after 15:50:00)
+data1_2023_Q3$position_ema_120[times(times_data_2023_Q3) <= times("9:40:00") | 
+                         times(times_data_2023_Q3) > times("15:50:00")] <- 0
+```
+
+```{r}
+# Fill missing positions with the most recent non-missing value (Last Observation Carried Forward)
+data1_2023_Q3$position_ema_120 <- na.locf(data1_2023_Q3$position_ema_120,
+                                  na.rm = FALSE)
+
+```
+
+### Gross profit for Single EMA
+```{r Gross profit ema_120 2023 Q3}
+# Calculate gross profit based on the position (ema_120), the change in 'NQ' prices, and a factor of 20
+data1_2023_Q3$gross_profit_ema_120 <- data1_2023_Q3$position_ema_120 * diff.xts(data1_2023_Q3$NQ) * 20
+
+```
+
+```{r}
+# Set any missing values in 'gross_profit_ema_120' to 0
+data1_2023_Q3$gross_profit_ema_120[is.na(data1_2023_Q3$gross_profit_ema_120)] <- 0
+chartSeries(cumsum(data1_2023_Q3$gross_profit_ema_120),
+            name = "Cumulative gross profit of EMA_120")
+```
+
+```{r Identify transactions 2023 Q3}
+# Identify transactions by calculating the absolute change in position (every time the position changes)
+data1_2023_Q3$ntrans_ema_120 <- abs(diff.xts(data1_2023_Q3$position_ema_120))
+
+```
+
+```{r}
+# Set the first transaction value to 0, as there's no previous position to compare
+data1_2023_Q3$ntrans_ema_120[1] <- 0
+
+```
+
+### Net profit for EMA 120 
+```{r Net profit for 2023 Q3}
+# Calculate net profit by subtracting transaction costs (based on the number of transactions and a cost factor of 12) from the gross profit
+data1_2023_Q3$net_profit_ema_120 <- data1_2023_Q3$gross_profit_ema_120 - data1_2023_Q3$ntrans_ema_120 * 12
+
+```
+
+```{r}
+# Plot the cumulative sum of the net profit to visualize the overall performance over time
+chartSeries(cumsum(data1_2023_Q3$net_profit_ema_120), 
+            name = "Cumulative Net Profit for EMA 120 Strategy")
+
+```
+
+## Volatility breakout strategy using EMA 60 and SD 120
+```{r}
+# Calculate the 60-period rolling mean of 'NQ' after filling missing values using the last observation carried forward
+data1_2023_Q3$mean_60 <- roll_mean(na.locf(data1_2023_Q3$NQ, na.rm = FALSE), 60)
+```
+
+```{r}
+# Calculate the 120-period rolling standard deviation of 'NQ' after filling missing values using the last observation carried forward
+data1_2023_Q3$sd_120 <- roll_sd(na.locf(data1_2023_Q3$NQ, na.rm = FALSE), 120)
+```
+
+```{r}
+# Measure the execution time for calculating the position based on a strategy using the 'positionVB' function
+system.time(
+  data1_2023_Q3$position_sd_ema <- 
+    positionVB(signal = data1_2023_Q3$NQ,
+               upper = data1_2023_Q3$mean_60 + 1.5 * data1_2023_Q3$sd_120,  # Upper bound based on 60-period mean and 1.5 times 120-period SD
+               lower = data1_2023_Q3$mean_60 - 1.5 * data1_2023_Q3$sd_120,  # Lower bound based on 60-period mean and 1.5 times 120-period SD
+               times_data = times_data_2023_Q3,  # Column with times
+               time_lower = "09:40:00", # Start time for trading
+               time_upper = "15:50:00", # Exit time for all positions
+               strategy = "mom"  # Momentum strategy
+  )
+)
+```
+
+```{r}
+# Fill missing position values with the most recent non-missing value (Last Observation Carried Forward)
+data1_2023_Q3$position_sd_ema <- na.locf(data1_2023_Q3$position_sd_ema,
+                                          na.rm = FALSE)
+```
+
+### Gross profit of volatility breakout strategy
+```{r}
+# Calculate gross profit for the strategy by multiplying position with the change in 'NQ' prices and a factor of 20
+data1_2023_Q3$gross_profit_sd_ema <- data1_2023_Q3$position_sd_ema * diff.xts(data1_2023_Q3$NQ) * 20
+
+```
+
+```{r}
+# Replace any missing values in the gross profit column with 0
+data1_2023_Q3$gross_profit_sd_ema[is.na(data1_2023_Q3$gross_profit_sd_ema)] <- 0
+chartSeries(cumsum(data1_2023_Q3$gross_profit_sd_ema),
+            name = "Cumulative gross profit of (EMA 60 + SD 120)")
+```
+
+```{r}
+# Identify transactions by calculating the absolute change in position ('position_sd_ema')
+data1_2023_Q3$ntrans_sd_ema <- abs(diff.xts(data1_2023_Q3$position_sd_ema))
+```
+
+```{r}
+# Set the first transaction value to 0, as there's no previous position to compare
+data1_2023_Q3$ntrans_sd_ema[1] <- 0
+```
+
+### Net profit of volatility breakout strategy
+```{r}
+# Calculate net profit by subtracting transaction costs (based on the number of transactions and a cost factor of 12) from the gross profit
+data1_2023_Q3$net_profit_sd_ema <- data1_2023_Q3$gross_profit_sd_ema - data1_2023_Q3$ntrans_sd_ema * 12
+```
+
+```{r}
+# Plot the cumulative net profit over time using a chart, based on the 'net_profit_sd_ema' column
+chartSeries(cumsum(data1_2023_Q3$net_profit_sd_ema), 
+            name = "Cumulative Net Profit for (EMA 60 + SD 120)")
+
+```
+
+# Strategies based on 2023 Q4
+```{r}
+data1_2023_Q4["T09:31/T09:35",] <- NA # Remove data between 09:31 and 09:35 by setting it to NA
+data1_2023_Q4["T15:56/T16:00",] <- NA # Remove data between 15:56 and 16:00 by setting it to NA
+
+```
+
+## Single EMA of 'NQ' with a 120-period window
+```{r}
+data1_2023_Q4$ema_120 <- EMA(na.locf(data1_2023_Q4$NQ, 
+                                   na.rm = FALSE),
+                           120) # Calculate the 120-period EMA of 'NQ' after filling missing values using the last observation carried forward
+
+```
+
+```{r}
+data1_2023_Q4$ema_120[is.na(data1_2023_Q4$NQ)] <- NA # Set EMA values to NA where the original 'NQ' values are missing
+
+```
+
+```{r Generate trading positions 2023 Q4}
+data1_2023_Q4$position_ema_120 <- ifelse(lag.xts(data1_2023_Q4$NQ) > 
+                                 lag.xts(data1_2023_Q4$ema_120), 1, -1) # Generate trading positions: 1 if 'NQ' is above its lagged EMA, -1 otherwise
+
+```
+
+```{r}
+# Set trading positions to 0 outside the active trading window (before 09:40:00 or after 15:50:00)
+data1_2023_Q4$position_ema_120[times(times_data_2023_Q2) <= times("9:40:00") | 
+                         times(times_data_2023_Q2) > times("15:50:00")] <- 0
+```
+
+```{r}
+# Fill missing positions with the most recent non-missing value (Last Observation Carried Forward)
+data1_2023_Q4$position_ema_120 <- na.locf(data1_2023_Q4$position_ema_120,
+                                  na.rm = FALSE)
+
+```
+
+### Gross profit for Single EMA
+```{r Gross profit ema_120 2023 Q4}
+# Calculate gross profit based on the position (ema_120), the change in 'NQ' prices, and a factor of 20
+data1_2023_Q4$gross_profit_ema_120 <- data1_2023_Q4$position_ema_120 * diff.xts(data1_2023_Q4$NQ) * 20
+
+```
+
+```{r}
+# Set any missing values in 'gross_profit_ema_120' to 0
+data1_2023_Q4$gross_profit_ema_120[is.na(data1_2023_Q4$gross_profit_ema_120)] <- 0
+chartSeries(cumsum(data1_2023_Q4$gross_profit_ema_120),
+            name = "Cumulative gross profit of EMA_120")
+```
+
+```{r Identify transactions 2023 Q4}
+# Identify transactions by calculating the absolute change in position (every time the position changes)
+data1_2023_Q4$ntrans_ema_120 <- abs(diff.xts(data1_2023_Q4$position_ema_120))
+
+```
+
+```{r}
+# Set the first transaction value to 0, as there's no previous position to compare
+data1_2023_Q4$ntrans_ema_120[1] <- 0
+
+```
+
+### Net profit for EMA 120 
+```{r Net profit for 2023 Q4}
+# Calculate net profit by subtracting transaction costs (based on the number of transactions and a cost factor of 12) from the gross profit
+data1_2023_Q4$net_profit_ema_120 <- data1_2023_Q4$gross_profit_ema_120 - data1_2023_Q4$ntrans_ema_120 * 12
+
+```
+
+```{r}
+# Plot the cumulative sum of the net profit to visualize the overall performance over time
+chartSeries(cumsum(data1_2023_Q4$net_profit_ema_120), 
+            name = "Cumulative Net Profit for EMA 120 Strategy")
+```
+
+## Volatility breakout strategy using EMA 60 and SD 120
+```{r}
+# Calculate the 60-period rolling mean of 'NQ' after filling missing values using the last observation carried forward
+data1_2023_Q4$mean_60 <- roll_mean(na.locf(data1_2023_Q4$NQ, na.rm = FALSE), 60)
+```
+
+```{r}
+# Calculate the 120-period rolling standard deviation of 'NQ' after filling missing values using the last observation carried forward
+data1_2023_Q4$sd_120 <- roll_sd(na.locf(data1_2023_Q4$NQ, na.rm = FALSE), 120)
+```
+
+```{r}
+# Measure the execution time for calculating the position based on a strategy using the 'positionVB' function
+system.time(
+  data1_2023_Q4$position_sd_ema <- 
+    positionVB(signal = data1_2023_Q4$NQ,
+               upper = data1_2023_Q4$mean_60 + 1.5 * data1_2023_Q4$sd_120,  # Upper bound based on 60-period mean and 1.5 times 120-period SD
+               lower = data1_2023_Q4$mean_60 - 1.5 * data1_2023_Q4$sd_120,  # Lower bound based on 60-period mean and 1.5 times 120-period SD
+               times_data = times_data_2023_Q4,  # Column with times
+               time_lower = "09:40:00", # Start time for trading
+               time_upper = "15:50:00", # Exit time for all positions
+               strategy = "mom"  # Momentum strategy
+  )
+)
+```
+
+```{r}
+# Fill missing position values with the most recent non-missing value (Last Observation Carried Forward)
+data1_2023_Q4$position_sd_ema <- na.locf(data1_2023_Q4$position_sd_ema,
+                                          na.rm = FALSE)
+```
+
+### Gross profit of volatility breakout strategy
+```{r}
+# Calculate gross profit for the strategy by multiplying position with the change in 'NQ' prices and a factor of 20
+data1_2023_Q4$gross_profit_sd_ema <- data1_2023_Q4$position_sd_ema * diff.xts(data1_2023_Q4$NQ) * 20
+
+```
+
+```{r}
+# Replace any missing values in the gross profit column with 0
+data1_2023_Q4$gross_profit_sd_ema[is.na(data1_2023_Q4$gross_profit_sd_ema)] <- 0
+chartSeries(cumsum(data1_2023_Q4$gross_profit_sd_ema),
+            name = "Cumulative gross profit of (EMA 60 + SD 120)")
+```
+
+```{r}
+# Identify transactions by calculating the absolute change in position ('position_sd_ema')
+data1_2023_Q4$ntrans_sd_ema <- abs(diff.xts(data1_2023_Q4$position_sd_ema))
+```
+
+```{r}
+# Set the first transaction value to 0, as there's no previous position to compare
+data1_2023_Q4$ntrans_sd_ema[1] <- 0
+```
+
+### Net profit of volatility breakout strategy
+```{r}
+# Calculate net profit by subtracting transaction costs (based on the number of transactions and a cost factor of 12) from the gross profit
+data1_2023_Q4$net_profit_sd_ema <- data1_2023_Q4$gross_profit_sd_ema - data1_2023_Q4$ntrans_sd_ema * 12
+```
+
+```{r}
+# Plot the cumulative net profit over time using a chart, based on the 'net_profit_sd_ema' column
+chartSeries(cumsum(data1_2023_Q4$net_profit_sd_ema), 
+            name = "Cumulative Net Profit for Volatility Breakout Strategy (EMA 60 + SD 120)")
+```
+
+# Strategies based on 2024 Q1
+```{r}
+data1_2024_Q1["T09:31/T09:35",] <- NA # Remove data between 09:31 and 09:35 by setting it to NA
+data1_2024_Q1["T15:56/T16:00",] <- NA # Remove data between 15:56 and 16:00 by setting it to NA
+
+```
+
+## Single EMA of 'NQ' with a 120-period window
+```{r}
+data1_2024_Q1$ema_120 <- EMA(na.locf(data1_2024_Q1$NQ, 
+                                   na.rm = FALSE),
+                           120) # Calculate the 120-period EMA of 'NQ' after filling missing values using the last observation carried forward
+
+```
+
+```{r}
+data1_2024_Q1$ema_120[is.na(data1_2024_Q1$NQ)] <- NA # Set EMA values to NA where the original 'NQ' values are missing
+
+```
+
+```{r Generate trading positions 2024 Q1}
+data1_2024_Q1$position_ema_120 <- ifelse(lag.xts(data1_2024_Q1$NQ) > 
+                                 lag.xts(data1_2024_Q1$ema_120), 1, -1) # Generate trading positions: 1 if 'NQ' is above its lagged EMA, -1 otherwise
+
+```
+
+```{r}
+# Set trading positions to 0 outside the active trading window (before 09:40:00 or after 15:50:00)
+data1_2024_Q1$position_ema_120[times(times_data_2024_Q1) <= times("9:40:00") | 
+                         times(times_data_2024_Q1) > times("15:50:00")] <- 0
+```
+
+```{r}
+# Fill missing positions with the most recent non-missing value (Last Observation Carried Forward)
+data1_2024_Q1$position_ema_120 <- na.locf(data1_2024_Q1$position_ema_120,
+                                  na.rm = FALSE)
+
+```
+
+### Gross profit for Single EMA
+```{r Gross profit ema_120 2024 Q1}
+# Calculate gross profit based on the position (ema_120), the change in 'NQ' prices, and a factor of 20
+data1_2024_Q1$gross_profit_ema_120 <- data1_2024_Q1$position_ema_120 * diff.xts(data1_2024_Q1$NQ) * 20
+
+```
+
+```{r}
+# Set any missing values in 'gross_profit_ema_120' to 0
+data1_2024_Q1$gross_profit_ema_120[is.na(data1_2024_Q1$gross_profit_ema_120)] <- 0
+chartSeries(cumsum(data1_2024_Q1$gross_profit_ema_120),
+            name = "Cumulative gross profit of EMA_120")
+```
+
+```{r Identify transactions 2024 Q1}
+# Identify transactions by calculating the absolute change in position (every time the position changes)
+data1_2024_Q1$ntrans_ema_120 <- abs(diff.xts(data1_2024_Q1$position_ema_120))
+
+```
+
+```{r}
+# Set the first transaction value to 0, as there's no previous position to compare
+data1_2024_Q1$ntrans_ema_120[1] <- 0
+
+```
+
+### Net profit for EMA 120 
+```{r Net profit for 2024 Q1}
+# Calculate net profit by subtracting transaction costs (based on the number of transactions and a cost factor of 12) from the gross profit
+data1_2024_Q1$net_profit_ema_120 <- data1_2024_Q1$gross_profit_ema_120 - data1_2024_Q1$ntrans_ema_120 * 12
+
+```
+
+```{r}
+# Plot the cumulative sum of the net profit to visualize the overall performance over time
+chartSeries(cumsum(data1_2024_Q1$net_profit_ema_120), 
+            name = "Cumulative Net Profit for EMA 120 Strategy")
+```
+
+## Volatility breakout strategy using EMA 60 and SD 120
+```{r}
+# Calculate the 60-period rolling mean of 'NQ' after filling missing values using the last observation carried forward
+data1_2024_Q1$mean_60 <- roll_mean(na.locf(data1_2024_Q1$NQ, na.rm = FALSE), 60)
+```
+
+```{r}
+# Calculate the 120-period rolling standard deviation of 'NQ' after filling missing values using the last observation carried forward
+data1_2024_Q1$sd_120 <- roll_sd(na.locf(data1_2024_Q1$NQ, na.rm = FALSE), 120)
+```
+
+```{r}
+# Measure the execution time for calculating the position based on a strategy using the 'positionVB' function
+system.time(
+  data1_2024_Q1$position_sd_ema <- 
+    positionVB(signal = data1_2024_Q1$NQ,
+               upper = data1_2024_Q1$mean_60 + 1.5 * data1_2024_Q1$sd_120,  # Upper bound based on 60-period mean and 1.5 times 120-period SD
+               lower = data1_2024_Q1$mean_60 - 1.5 * data1_2024_Q1$sd_120,  # Lower bound based on 60-period mean and 1.5 times 120-period SD
+               times_data = times_data_2024_Q1,  # Column with times
+               time_lower = "09:40:00", # Start time for trading
+               time_upper = "15:50:00", # Exit time for all positions
+               strategy = "mom"  # Momentum strategy
+  )
+)
+```
+
+```{r}
+# Fill missing position values with the most recent non-missing value (Last Observation Carried Forward)
+data1_2024_Q1$position_sd_ema <- na.locf(data1_2024_Q1$position_sd_ema,
+                                          na.rm = FALSE)
+```
+
+### Gross profit of volatility breakout strategy
+```{r}
+# Calculate gross profit for the strategy by multiplying position with the change in 'NQ' prices and a factor of 20
+data1_2024_Q1$gross_profit_sd_ema <- data1_2024_Q1$position_sd_ema * diff.xts(data1_2024_Q1$NQ) * 20
+
+```
+
+```{r}
+# Replace any missing values in the gross profit column with 0
+data1_2024_Q1$gross_profit_sd_ema[is.na(data1_2024_Q1$gross_profit_sd_ema)] <- 0
+chartSeries(cumsum(data1_2024_Q1$gross_profit_sd_ema),
+            name = "Cumulative gross profit of (EMA 60 + SD 120)")
+```
+
+```{r}
+# Identify transactions by calculating the absolute change in position ('position_sd_ema')
+data1_2024_Q1$ntrans_sd_ema <- abs(diff.xts(data1_2024_Q1$position_sd_ema))
+```
+
+```{r}
+# Set the first transaction value to 0, as there's no previous position to compare
+data1_2024_Q1$ntrans_sd_ema[1] <- 0
+```
+
+### Net profit of volatility breakout strategy
+```{r}
+# Calculate net profit by subtracting transaction costs (based on the number of transactions and a cost factor of 12) from the gross profit
+data1_2024_Q1$net_profit_sd_ema <- data1_2024_Q1$gross_profit_sd_ema - data1_2024_Q1$ntrans_sd_ema * 12
+```
+
+```{r}
+# Plot the cumulative net profit over time using a chart, based on the 'net_profit_sd_ema' column
+chartSeries(cumsum(data1_2024_Q1$net_profit_sd_ema), 
+            name = "Cumulative Net Profit for (EMA 60 + SD 120)")
+```
+
+# Strategies based on 2024 Q2
+```{r}
+data1_2024_Q2["T09:31/T09:35",] <- NA # Remove data between 09:31 and 09:35 by setting it to NA
+data1_2024_Q2["T15:56/T16:00",] <- NA # Remove data between 15:56 and 16:00 by setting it to NA
+
+```
+
+## Single EMA of 'NQ' with a 120-period window
+```{r}
+data1_2024_Q2$ema_120 <- EMA(na.locf(data1_2024_Q2$NQ, 
+                                   na.rm = FALSE),
+                           120) # Calculate the 120-period EMA of 'NQ' after filling missing values using the last observation carried forward
+
+```
+
+```{r}
+data1_2024_Q2$ema_120[is.na(data1_2024_Q2$NQ)] <- NA # Set EMA values to NA where the original 'NQ' values are missing
+
+```
+
+```{r Generate trading positions 2024 Q2}
+data1_2024_Q2$position_ema_120 <- ifelse(lag.xts(data1_2024_Q2$NQ) > 
+                                 lag.xts(data1_2024_Q2$ema_120), 1, -1) # Generate trading positions: 1 if 'NQ' is above its lagged EMA, -1 otherwise
+
+```
+
+```{r}
+# Set trading positions to 0 outside the active trading window (before 09:40:00 or after 15:50:00)
+data1_2024_Q2$position_ema_120[times(times_data_2024_Q2) <= times("9:40:00") | 
+                         times(times_data_2024_Q2) > times("15:50:00")] <- 0
+```
+
+```{r}
+# Fill missing positions with the most recent non-missing value (Last Observation Carried Forward)
+data1_2024_Q2$position_ema_120 <- na.locf(data1_2024_Q2$position_ema_120,
+                                  na.rm = FALSE)
+
+```
+
+### Gross profit for Single EMA
+```{r Gross profit ema_120 2024 Q2}
+# Calculate gross profit based on the position (ema_120), the change in 'NQ' prices, and a factor of 20
+data1_2024_Q2$gross_profit_ema_120 <- data1_2024_Q2$position_ema_120 * diff.xts(data1_2024_Q2$NQ) * 20
+
+```
+
+```{r}
+# Set any missing values in 'gross_profit_ema_120' to 0
+data1_2024_Q2$gross_profit_ema_120[is.na(data1_2024_Q2$gross_profit_ema_120)] <- 0
+chartSeries(cumsum(data1_2024_Q2$gross_profit_ema_120),
+            name = "Cumulative gross profit of EMA_120")
+```
+
+```{r Identify transactions 2024 Q2}
+# Identify transactions by calculating the absolute change in position (every time the position changes)
+data1_2024_Q2$ntrans_ema_120 <- abs(diff.xts(data1_2024_Q2$position_ema_120))
+
+```
+
+```{r}
+# Set the first transaction value to 0, as there's no previous position to compare
+data1_2024_Q2$ntrans_ema_120[1] <- 0
+
+```
+
+### Net profit for EMA 120 
+```{r Net profit for 2024 Q2}
+# Calculate net profit by subtracting transaction costs (based on the number of transactions and a cost factor of 12) from the gross profit
+data1_2024_Q2$net_profit_ema_120 <- data1_2024_Q2$gross_profit_ema_120 - data1_2024_Q2$ntrans_ema_120 * 12
+
+```
+
+```{r}
+# Plot the cumulative sum of the net profit to visualize the overall performance over time
+chartSeries(cumsum(data1_2024_Q2$net_profit_ema_120), 
+            name = "Cumulative Net Profit for EMA 120 Strategy")
+```
+
+## Volatility breakout strategy using EMA 60 and SD 120
+```{r}
+# Calculate the 60-period rolling mean of 'NQ' after filling missing values using the last observation carried forward
+data1_2024_Q2$mean_60 <- roll_mean(na.locf(data1_2024_Q2$NQ, na.rm = FALSE), 60)
+```
+
+```{r}
+# Calculate the 120-period rolling standard deviation of 'NQ' after filling missing values using the last observation carried forward
+data1_2024_Q2$sd_120 <- roll_sd(na.locf(data1_2024_Q2$NQ, na.rm = FALSE), 120)
+```
+
+```{r}
+# Measure the execution time for calculating the position based on a strategy using the 'positionVB' function
+system.time(
+  data1_2024_Q2$position_sd_ema <- 
+    positionVB(signal = data1_2024_Q2$NQ,
+               upper = data1_2024_Q2$mean_60 + 1.5 * data1_2024_Q2$sd_120,  # Upper bound based on 60-period mean and 1.5 times 120-period SD
+               lower = data1_2024_Q2$mean_60 - 1.5 * data1_2024_Q2$sd_120,  # Lower bound based on 60-period mean and 1.5 times 120-period SD
+               times_data = times_data_2024_Q2,  # Column with times
+               time_lower = "09:40:00", # Start time for trading
+               time_upper = "15:50:00", # Exit time for all positions
+               strategy = "mom"  # Momentum strategy
+  )
+)
+```
+
+```{r}
+# Fill missing position values with the most recent non-missing value (Last Observation Carried Forward)
+data1_2024_Q2$position_sd_ema <- na.locf(data1_2024_Q2$position_sd_ema,
+                                          na.rm = FALSE)
+```
+
+### Gross profit of volatility breakout strategy
+```{r}
+# Calculate gross profit for the strategy by multiplying position with the change in 'NQ' prices and a factor of 20
+data1_2024_Q2$gross_profit_sd_ema <- data1_2024_Q2$position_sd_ema * diff.xts(data1_2024_Q2$NQ) * 20
+
+```
+
+```{r}
+# Replace any missing values in the gross profit column with 0
+data1_2024_Q2$gross_profit_sd_ema[is.na(data1_2024_Q2$gross_profit_sd_ema)] <- 0
+chartSeries(cumsum(data1_2024_Q2$gross_profit_sd_ema),
+            name = "Cumulative gross profit of (EMA 60 + SD 120)")
+```
+
+```{r}
+# Identify transactions by calculating the absolute change in position ('position_sd_ema')
+data1_2024_Q2$ntrans_sd_ema <- abs(diff.xts(data1_2024_Q2$position_sd_ema))
+```
+
+```{r}
+# Set the first transaction value to 0, as there's no previous position to compare
+data1_2024_Q2$ntrans_sd_ema[1] <- 0
+```
+
+### Net profit of volatility breakout strategy
+```{r}
+# Calculate net profit by subtracting transaction costs (based on the number of transactions and a cost factor of 12) from the gross profit
+data1_2024_Q2$net_profit_sd_ema <- data1_2024_Q2$gross_profit_sd_ema - data1_2024_Q2$ntrans_sd_ema * 12
+```
+
+```{r}
+# Plot the cumulative net profit over time using a chart, based on the 'net_profit_sd_ema' column
+chartSeries(cumsum(data1_2024_Q2$net_profit_sd_ema), 
+            name = "Cumulative Net Profit for (EMA 60 + SD 120)")
+```
+
+# Strategies based on 2024 Q3
+```{r}
+data1_2024_Q3["T09:31/T09:35",] <- NA # Remove data between 09:31 and 09:35 by setting it to NA
+data1_2024_Q3["T15:56/T16:00",] <- NA # Remove data between 15:56 and 16:00 by setting it to NA
+
+```
+
+## Single EMA of 'NQ' with a 120-period window
+```{r}
+data1_2024_Q3$ema_120 <- EMA(na.locf(data1_2024_Q3$NQ, 
+                                   na.rm = FALSE),
+                           120) # Calculate the 120-period EMA of 'NQ' after filling missing values using the last observation carried forward
+
+```
+
+```{r}
+data1_2024_Q3$ema_120[is.na(data1_2024_Q3$NQ)] <- NA # Set EMA values to NA where the original 'NQ' values are missing
+
+```
+
+```{r Generate trading positions 2024 Q3}
+data1_2024_Q3$position_ema_120 <- ifelse(lag.xts(data1_2024_Q3$NQ) > 
+                                 lag.xts(data1_2024_Q3$ema_120), 1, -1) # Generate trading positions: 1 if 'NQ' is above its lagged EMA, -1 otherwise
+
+```
+
+```{r}
+# Set trading positions to 0 outside the active trading window (before 09:40:00 or after 15:50:00)
+data1_2024_Q3$position_ema_120[times(times_data_2024_Q3) <= times("9:40:00") | 
+                         times(times_data_2024_Q3) > times("15:50:00")] <- 0
+```
+
+```{r}
+# Fill missing positions with the most recent non-missing value (Last Observation Carried Forward)
+data1_2024_Q3$position_ema_120 <- na.locf(data1_2024_Q3$position_ema_120,
+                                  na.rm = FALSE)
+
+```
+
+### Gross profit for Single EMA
+```{r Gross profit ema_120 2024 Q3}
+# Calculate gross profit based on the position (ema_120), the change in 'NQ' prices, and a factor of 20
+data1_2024_Q3$gross_profit_ema_120 <- data1_2024_Q3$position_ema_120 * diff.xts(data1_2024_Q3$NQ) * 20
+
+```
+
+```{r}
+# Set any missing values in 'gross_profit_ema_120' to 0
+data1_2024_Q3$gross_profit_ema_120[is.na(data1_2024_Q3$gross_profit_ema_120)] <- 0
+chartSeries(cumsum(data1_2024_Q3$gross_profit_ema_120),
+            name = "Cumulative gross profit of EMA_120")
+```
+
+```{r Identify transactions 2024 Q3}
+# Identify transactions by calculating the absolute change in position (every time the position changes)
+data1_2024_Q3$ntrans_ema_120 <- abs(diff.xts(data1_2024_Q3$position_ema_120))
+
+```
+
+```{r}
+# Set the first transaction value to 0, as there's no previous position to compare
+data1_2024_Q3$ntrans_ema_120[1] <- 0
+
+```
+
+### Net profit for EMA 120 
+```{r Net profit for 2024 Q3}
+# Calculate net profit by subtracting transaction costs (based on the number of transactions and a cost factor of 12) from the gross profit
+data1_2024_Q3$net_profit_ema_120 <- data1_2024_Q3$gross_profit_ema_120 - data1_2024_Q3$ntrans_ema_120 * 12
+
+```
+
+```{r}
+# Plot the cumulative sum of the net profit to visualize the overall performance over time
+chartSeries(cumsum(data1_2024_Q3$net_profit_ema_120), 
+            name = "Cumulative Net Profit for EMA 120 Strategy")
+```
+
+## Volatility breakout strategy using EMA 60 and SD 120
+```{r}
+# Calculate the 60-period rolling mean of 'NQ' after filling missing values using the last observation carried forward
+data1_2024_Q3$mean_60 <- roll_mean(na.locf(data1_2024_Q3$NQ, na.rm = FALSE), 60)
+```
+
+```{r}
+# Calculate the 120-period rolling standard deviation of 'NQ' after filling missing values using the last observation carried forward
+data1_2024_Q3$sd_120 <- roll_sd(na.locf(data1_2024_Q3$NQ, na.rm = FALSE), 120)
+```
+
+```{r}
+# Measure the execution time for calculating the position based on a strategy using the 'positionVB' function
+system.time(
+  data1_2024_Q3$position_sd_ema <- 
+    positionVB(signal = data1_2024_Q3$NQ,
+               upper = data1_2024_Q3$mean_60 + 1.5 * data1_2024_Q3$sd_120,  # Upper bound based on 60-period mean and 1.5 times 120-period SD
+               lower = data1_2024_Q3$mean_60 - 1.5 * data1_2024_Q3$sd_120,  # Lower bound based on 60-period mean and 1.5 times 120-period SD
+               times_data = times_data_2024_Q3,  # Column with times
+               time_lower = "09:40:00", # Start time for trading
+               time_upper = "15:50:00", # Exit time for all positions
+               strategy = "mom"  # Momentum strategy
+  )
+)
+```
+
+```{r}
+# Fill missing position values with the most recent non-missing value (Last Observation Carried Forward)
+data1_2024_Q3$position_sd_ema <- na.locf(data1_2024_Q3$position_sd_ema,
+                                          na.rm = FALSE)
+```
+
+### Gross profit of volatility breakout strategy
+```{r}
+# Calculate gross profit for the strategy by multiplying position with the change in 'NQ' prices and a factor of 20
+data1_2024_Q3$gross_profit_sd_ema <- data1_2024_Q3$position_sd_ema * diff.xts(data1_2024_Q3$NQ) * 20
+
+```
+
+```{r}
+# Replace any missing values in the gross profit column with 0
+data1_2024_Q3$gross_profit_sd_ema[is.na(data1_2024_Q3$gross_profit_sd_ema)] <- 0
+chartSeries(cumsum(data1_2024_Q3$gross_profit_sd_ema),
+            name = "Cumulative gross profit of (EMA 60 + SD 120)")
+```
+
+```{r}
+# Identify transactions by calculating the absolute change in position ('position_sd_ema')
+data1_2024_Q3$ntrans_sd_ema <- abs(diff.xts(data1_2024_Q3$position_sd_ema))
+```
+
+```{r}
+# Set the first transaction value to 0, as there's no previous position to compare
+data1_2024_Q3$ntrans_sd_ema[1] <- 0
+```
+
+### Net profit of volatility breakout strategy
+```{r}
+# Calculate net profit by subtracting transaction costs (based on the number of transactions and a cost factor of 12) from the gross profit
+data1_2024_Q3$net_profit_sd_ema <- data1_2024_Q3$gross_profit_sd_ema - data1_2024_Q3$ntrans_sd_ema * 12
+```
+
+```{r}
+# Plot the cumulative net profit over time using a chart, based on the 'net_profit_sd_ema' column
+chartSeries(cumsum(data1_2024_Q3$net_profit_sd_ema), 
+            name = "Cumulative Net Profit for (EMA 60 + SD 120)")
+```
+
+# Strategies based on 2024 Q4
+```{r}
+data1_2024_Q4["T09:31/T09:35",] <- NA # Remove data between 09:31 and 09:35 by setting it to NA
+data1_2024_Q4["T15:56/T16:00",] <- NA # Remove data between 15:56 and 16:00 by setting it to NA
+
+```
+
+## Single EMA of 'NQ' with a 120-period window
+```{r}
+data1_2024_Q4$ema_120 <- EMA(na.locf(data1_2024_Q4$NQ, 
+                                   na.rm = FALSE),
+                           120) # Calculate the 120-period EMA of 'NQ' after filling missing values using the last observation carried forward
+
+```
+
+```{r}
+data1_2024_Q4$ema_120[is.na(data1_2024_Q4$NQ)] <- NA # Set EMA values to NA where the original 'NQ' values are missing
+
+```
+
+```{r Generate trading positions 2024 Q4}
+data1_2024_Q4$position_ema_120 <- ifelse(lag.xts(data1_2024_Q4$NQ) > 
+                                 lag.xts(data1_2024_Q4$ema_120), 1, -1) # Generate trading positions: 1 if 'NQ' is above its lagged EMA, -1 otherwise
+
+```
+
+```{r}
+# Set trading positions to 0 outside the active trading window (before 09:40:00 or after 15:50:00)
+data1_2024_Q4$position_ema_120[times(times_data_2024_Q4) <= times("9:40:00") | 
+                         times(times_data_2024_Q4) > times("15:50:00")] <- 0
+```
+
+```{r}
+# Fill missing positions with the most recent non-missing value (Last Observation Carried Forward)
+data1_2024_Q4$position_ema_120 <- na.locf(data1_2024_Q4$position_ema_120,
+                                  na.rm = FALSE)
+
+```
+
+### Gross profit for Single EMA
+```{r Gross profit ema_120 2024 Q4}
+# Calculate gross profit based on the position (ema_120), the change in 'NQ' prices, and a factor of 20
+data1_2024_Q4$gross_profit_ema_120 <- data1_2024_Q4$position_ema_120 * diff.xts(data1_2024_Q4$NQ) * 20
+
+```
+
+```{r}
+# Set any missing values in 'gross_profit_ema_120' to 0
+data1_2024_Q4$gross_profit_ema_120[is.na(data1_2024_Q4$gross_profit_ema_120)] <- 0
+chartSeries(cumsum(data1_2024_Q4$gross_profit_ema_120),
+            name = "Cumulative gross profit of EMA_120")
+```
+
+```{r Identify transactions 2024 Q4}
+# Identify transactions by calculating the absolute change in position (every time the position changes)
+data1_2024_Q4$ntrans_ema_120 <- abs(diff.xts(data1_2024_Q4$position_ema_120))
+
+```
+
+```{r}
+# Set the first transaction value to 0, as there's no previous position to compare
+data1_2024_Q4$ntrans_ema_120[1] <- 0
+
+```
+
+### Net profit for EMA 120 
+```{r Net profit for 2024 Q4}
+# Calculate net profit by subtracting transaction costs (based on the number of transactions and a cost factor of 12) from the gross profit
+data1_2024_Q4$net_profit_ema_120 <- data1_2024_Q4$gross_profit_ema_120 - data1_2024_Q4$ntrans_ema_120 * 12
+
+```
+
+```{r}
+# Plot the cumulative sum of the net profit to visualize the overall performance over time
+chartSeries(cumsum(data1_2024_Q4$net_profit_ema_120), 
+            name = "Cumulative Net Profit for EMA 120 Strategy")
+```
+
+## Volatility breakout strategy using EMA 60 and SD 120
+```{r}
+# Calculate the 60-period rolling mean of 'NQ' after filling missing values using the last observation carried forward
+data1_2024_Q4$mean_60 <- roll_mean(na.locf(data1_2024_Q4$NQ, na.rm = FALSE), 60)
+```
+
+```{r}
+# Calculate the 120-period rolling standard deviation of 'NQ' after filling missing values using the last observation carried forward
+data1_2024_Q4$sd_120 <- roll_sd(na.locf(data1_2024_Q4$NQ, na.rm = FALSE), 120)
+```
+
+```{r}
+# Measure the execution time for calculating the position based on a strategy using the 'positionVB' function
+system.time(
+  data1_2024_Q4$position_sd_ema <- 
+    positionVB(signal = data1_2024_Q4$NQ,
+               upper = data1_2024_Q4$mean_60 + 1.5 * data1_2024_Q4$sd_120,  # Upper bound based on 60-period mean and 1.5 times 120-period SD
+               lower = data1_2024_Q4$mean_60 - 1.5 * data1_2024_Q4$sd_120,  # Lower bound based on 60-period mean and 1.5 times 120-period SD
+               times_data = times_data_2024_Q4,  # Column with times
+               time_lower = "09:40:00", # Start time for trading
+               time_upper = "15:50:00", # Exit time for all positions
+               strategy = "mom"  # Momentum strategy
+  )
+)
+```
+
+```{r}
+# Fill missing position values with the most recent non-missing value (Last Observation Carried Forward)
+data1_2024_Q4$position_sd_ema <- na.locf(data1_2024_Q4$position_sd_ema,
+                                          na.rm = FALSE)
+```
+
+### Gross profit of volatility breakout strategy
+```{r}
+# Calculate gross profit for the strategy by multiplying position with the change in 'NQ' prices and a factor of 20
+data1_2024_Q4$gross_profit_sd_ema <- data1_2024_Q4$position_sd_ema * diff.xts(data1_2024_Q4$NQ) * 20
+
+```
+
+```{r}
+# Replace any missing values in the gross profit column with 0
+data1_2024_Q4$gross_profit_sd_ema[is.na(data1_2024_Q4$gross_profit_sd_ema)] <- 0
+chartSeries(cumsum(data1_2024_Q4$gross_profit_sd_ema),
+            name = "Cumulative gross profit of (EMA 60 + SD 120)")
+```
+
+```{r}
+# Identify transactions by calculating the absolute change in position ('position_sd_ema')
+data1_2024_Q4$ntrans_sd_ema <- abs(diff.xts(data1_2024_Q4$position_sd_ema))
+```
+
+```{r}
+# Set the first transaction value to 0, as there's no previous position to compare
+data1_2024_Q4$ntrans_sd_ema[1] <- 0
+```
+
+### Net profit of volatility breakout strategy
+```{r}
+# Calculate net profit by subtracting transaction costs (based on the number of transactions and a cost factor of 12) from the gross profit
+data1_2024_Q4$net_profit_sd_ema <- data1_2024_Q4$gross_profit_sd_ema - data1_2024_Q4$ntrans_sd_ema * 12
+```
+
+```{r}
+# Plot the cumulative net profit over time using a chart, based on the 'net_profit_sd_ema' column
+chartSeries(cumsum(data1_2024_Q4$net_profit_sd_ema), 
+            name = "Cumulative Net Profit for (EMA 60 + SD 120)")
+```
+
+
+# User function
+```{r}
+
+myCalmarRatio <-myCalmarRatio <- function(x, # x = series of returns
+                 # scale parameter = Nt
+                 scale) {
+  scale * mean(coredata(x), na.rm = TRUE) / 
+    maxdrawdown(cumsum(x))$maxdrawdown
+  
+} 
+```
+
+# Write the result to CSV
+
+## Create dataframes
+
+```{r}
+result_ema_120 <- data.frame(
+  Period = c("2022 Q1", "2022 Q2", "2022 Q3", "2022 Q4", "2023 Q1", "2023 Q2", "2023 Q3", "2023 Q4", "2024 Q1", "2024 Q2", "2024 Q3", "2024 Q4"),
+  Gross_SR_EMA_120 = c(SortinoRatio(data1_2022_Q1$gross_profit_ema_120),
+                       SortinoRatio(data1_2022_Q2$gross_profit_ema_120),
+                       SortinoRatio(data1_2022_Q3$gross_profit_ema_120),
+                       SortinoRatio(data1_2022_Q4$gross_profit_ema_120),
+                       SortinoRatio(data1_2023_Q1$gross_profit_ema_120),
+                       SortinoRatio(data1_2023_Q2$gross_profit_ema_120),
+                       SortinoRatio(data1_2023_Q3$gross_profit_ema_120),
+                       SortinoRatio(data1_2023_Q4$gross_profit_ema_120),
+                       SortinoRatio(data1_2024_Q1$gross_profit_ema_120),
+                       SortinoRatio(data1_2024_Q2$gross_profit_ema_120),
+                       SortinoRatio(data1_2024_Q3$gross_profit_ema_120),
+                       SortinoRatio(data1_2024_Q4$gross_profit_ema_120)),
+  Net_SR_EMA_120 = c(SortinoRatio(data1_2022_Q1$net_profit_ema_120),
+                     SortinoRatio(data1_2022_Q2$net_profit_ema_120),
+                     SortinoRatio(data1_2022_Q3$net_profit_ema_120),
+                     SortinoRatio(data1_2022_Q4$net_profit_ema_120),
+                     SortinoRatio(data1_2023_Q1$net_profit_ema_120),
+                     SortinoRatio(data1_2023_Q2$net_profit_ema_120),
+                     SortinoRatio(data1_2023_Q3$net_profit_ema_120),
+                     SortinoRatio(data1_2023_Q4$net_profit_ema_120),
+                     SortinoRatio(data1_2024_Q1$net_profit_ema_120),
+                     SortinoRatio(data1_2024_Q2$net_profit_ema_120),
+                     SortinoRatio(data1_2024_Q3$net_profit_ema_120),
+                     SortinoRatio(data1_2024_Q4$net_profit_ema_120)),
+  Gross_CR_EMA_120 = c(myCalmarRatio(data1_2022_Q1$gross_profit_ema_120, scale = 252),
+                       myCalmarRatio(data1_2022_Q2$gross_profit_ema_120, scale = 252),
+                       myCalmarRatio(data1_2022_Q3$gross_profit_ema_120, scale = 252),
+                       myCalmarRatio(data1_2022_Q4$gross_profit_ema_120, scale = 252),
+                       myCalmarRatio(data1_2023_Q1$gross_profit_ema_120, scale = 252),
+                       myCalmarRatio(data1_2023_Q2$gross_profit_ema_120, scale = 252),
+                       myCalmarRatio(data1_2023_Q3$gross_profit_ema_120, scale = 252),
+                       myCalmarRatio(data1_2023_Q4$gross_profit_ema_120, scale = 252),
+                       myCalmarRatio(data1_2024_Q1$gross_profit_ema_120, scale = 252),
+                       myCalmarRatio(data1_2024_Q2$gross_profit_ema_120, scale = 252),
+                       myCalmarRatio(data1_2024_Q3$gross_profit_ema_120, scale = 252),
+                       myCalmarRatio(data1_2024_Q4$gross_profit_ema_120, scale = 252)),
+  Net_CR_EMA_120 = c(myCalmarRatio(data1_2022_Q1$net_profit_ema_120, scale = 252),
+                     myCalmarRatio(data1_2022_Q2$net_profit_ema_120, scale = 252),
+                     myCalmarRatio(data1_2022_Q3$net_profit_ema_120, scale = 252),
+                     myCalmarRatio(data1_2022_Q4$net_profit_ema_120, scale = 252),
+                     myCalmarRatio(data1_2023_Q1$net_profit_ema_120, scale = 252),
+                     myCalmarRatio(data1_2023_Q2$net_profit_ema_120, scale = 252),
+                     myCalmarRatio(data1_2023_Q3$net_profit_ema_120, scale = 252),
+                     myCalmarRatio(data1_2023_Q4$net_profit_ema_120, scale = 252),
+                     myCalmarRatio(data1_2024_Q1$net_profit_ema_120, scale = 252),
+                     myCalmarRatio(data1_2024_Q2$net_profit_ema_120, scale = 252),
+                     myCalmarRatio(data1_2024_Q3$net_profit_ema_120, scale = 252),
+                     myCalmarRatio(data1_2024_Q4$net_profit_ema_120, scale = 252)),
+  Gross_cumPnL_EMA_120 = c(tail(cumsum(data1_2022_Q1$gross_profit_ema_120), 1),
+                           tail(cumsum(data1_2022_Q2$gross_profit_ema_120), 1),
+                           tail(cumsum(data1_2022_Q3$gross_profit_ema_120), 1),
+                           tail(cumsum(data1_2022_Q4$gross_profit_ema_120), 1),
+                           tail(cumsum(data1_2023_Q1$gross_profit_ema_120), 1),
+                           tail(cumsum(data1_2023_Q2$gross_profit_ema_120), 1),
+                           tail(cumsum(data1_2023_Q3$gross_profit_ema_120), 1),
+                           tail(cumsum(data1_2023_Q4$gross_profit_ema_120), 1),
+                           tail(cumsum(data1_2024_Q1$gross_profit_ema_120), 1),
+                           tail(cumsum(data1_2024_Q2$gross_profit_ema_120), 1),
+                           tail(cumsum(data1_2024_Q3$gross_profit_ema_120), 1),
+                           tail(cumsum(data1_2024_Q4$gross_profit_ema_120), 1)),
+  Net_cumPnL_EMA_120 = c(tail(cumsum(data1_2022_Q1$net_profit_ema_120), 1),
+                         tail(cumsum(data1_2022_Q2$net_profit_ema_120), 1),
+                         tail(cumsum(data1_2022_Q3$net_profit_ema_120), 1),
+                         tail(cumsum(data1_2022_Q4$net_profit_ema_120), 1),
+                         tail(cumsum(data1_2023_Q1$net_profit_ema_120), 1),
+                         tail(cumsum(data1_2023_Q2$net_profit_ema_120), 1),
+                         tail(cumsum(data1_2023_Q3$net_profit_ema_120), 1),
+                         tail(cumsum(data1_2023_Q4$net_profit_ema_120), 1),
+                         tail(cumsum(data1_2024_Q1$net_profit_ema_120), 1),
+                         tail(cumsum(data1_2024_Q2$net_profit_ema_120), 1),
+                         tail(cumsum(data1_2024_Q3$net_profit_ema_120), 1),
+                         tail(cumsum(data1_2024_Q4$net_profit_ema_120), 1)),
+  Avg_nTrades_EMA_120 = c(mean(data1_2022_Q1$ntrans_ema_120),
+                          mean(data1_2022_Q2$ntrans_ema_120),
+                          mean(data1_2022_Q3$ntrans_ema_120),
+                          mean(data1_2022_Q4$ntrans_ema_120),
+                          mean(data1_2023_Q1$ntrans_ema_120),
+                          mean(data1_2023_Q2$ntrans_ema_120),
+                          mean(data1_2023_Q3$ntrans_ema_120),
+                          mean(data1_2023_Q4$ntrans_ema_120),
+                          mean(data1_2024_Q1$ntrans_ema_120),
+                          mean(data1_2024_Q2$ntrans_ema_120),
+                          mean(data1_2024_Q3$ntrans_ema_120),
+                          mean(data1_2024_Q4$ntrans_ema_120)),
+  Summary_Statistic_EMA_120 = c(
+    myCalmarRatio(data1_2022_Q1$net_profit_ema_120, scale = 252) * max(log(abs(data1_2022_Q1$net_profit_ema_120))),
+    myCalmarRatio(data1_2022_Q2$net_profit_ema_120, scale = 252) * max(log(abs(data1_2022_Q2$net_profit_ema_120))),
+    myCalmarRatio(data1_2022_Q3$net_profit_ema_120, scale = 252) * max(log(abs(data1_2022_Q3$net_profit_ema_120))),
+    myCalmarRatio(data1_2022_Q4$net_profit_ema_120, scale = 252) * max(log(abs(data1_2022_Q4$net_profit_ema_120))),
+    myCalmarRatio(data1_2023_Q1$net_profit_ema_120, scale = 252) * max(log(abs(data1_2023_Q1$net_profit_ema_120))),
+    myCalmarRatio(data1_2023_Q2$net_profit_ema_120, scale = 252) * max(log(abs(data1_2023_Q2$net_profit_ema_120))),
+    myCalmarRatio(data1_2023_Q3$net_profit_ema_120, scale = 252) * max(log(abs(data1_2023_Q3$net_profit_ema_120))),
+    myCalmarRatio(data1_2023_Q4$net_profit_ema_120, scale = 252) * max(log(abs(data1_2023_Q4$net_profit_ema_120))),
+    myCalmarRatio(data1_2024_Q1$net_profit_ema_120, scale = 252) * max(log(abs(data1_2024_Q1$net_profit_ema_120))),
+    myCalmarRatio(data1_2024_Q2$net_profit_ema_120, scale = 252) * max(log(abs(data1_2024_Q2$net_profit_ema_120))),
+    myCalmarRatio(data1_2024_Q3$net_profit_ema_120, scale = 252) * max(log(abs(data1_2024_Q3$net_profit_ema_120))),
+    myCalmarRatio(data1_2024_Q4$net_profit_ema_120, scale = 252) * max(log(abs(data1_2024_Q4$net_profit_ema_120)))
+  )
+)
+
+# Create the "Total" row
+total_row <- data.frame(
+  Period = "Total",
+  Gross_SR_EMA_120 = sum(result_ema_120$Gross_SR_EMA_120, na.rm = TRUE),
+  Net_SR_EMA_120 = sum(result_ema_120$Net_SR_EMA_120, na.rm = TRUE),
+  Gross_CR_EMA_120 = sum(result_ema_120$Gross_CR_EMA_120, na.rm = TRUE),
+  Net_CR_EMA_120 = sum(result_ema_120$Net_CR_EMA_120, na.rm = TRUE),
+  Gross_cumPnL_EMA_120 = sum(result_ema_120$Gross_cumPnL_EMA_120, na.rm = TRUE),
+  Net_cumPnL_EMA_120 = sum(result_ema_120$Net_cumPnL_EMA_120, na.rm = TRUE),
+  Avg_nTrades_EMA_120 = mean(result_ema_120$Avg_nTrades_EMA_120, na.rm = TRUE),
+  Summary_Statistic_EMA_120 = sum(result_ema_120$Summary_Statistic_EMA_120, na.rm = TRUE),
+  stringsAsFactors = FALSE
+)
+
+# Ensure column names of total_row match result
+colnames(total_row) <- colnames(result_ema_120)
+
+# Append the "Total" row to the dataframe
+result_ema_120 <- rbind(result_ema_120, total_row)
+
+# Reset row names to remove indexing numbers
+rownames(result_ema_120) <- NULL
+```
+
+
+```{r}
+result_ema_sd <- data.frame(
+  Period = c(
+    "2022 Q1", "2022 Q2", "2022 Q3", "2022 Q4",
+    "2023 Q1", "2023 Q2", "2023 Q3", "2023 Q4",
+    "2024 Q1", "2024 Q2", "2024 Q3", "2024 Q4"
+  ),
+  
+  Gross_SR_SD_EMA = c(
+    SortinoRatio(data1_2022_Q1$gross_profit_sd_ema),
+    SortinoRatio(data1_2022_Q2$gross_profit_sd_ema),
+    SortinoRatio(data1_2022_Q3$gross_profit_sd_ema),
+    SortinoRatio(data1_2022_Q4$gross_profit_sd_ema),
+    SortinoRatio(data1_2023_Q1$gross_profit_sd_ema),
+    SortinoRatio(data1_2023_Q2$gross_profit_sd_ema),
+    SortinoRatio(data1_2023_Q3$gross_profit_sd_ema),
+    SortinoRatio(data1_2023_Q4$gross_profit_sd_ema),
+    SortinoRatio(data1_2024_Q1$gross_profit_sd_ema),
+    SortinoRatio(data1_2024_Q2$gross_profit_sd_ema),
+    SortinoRatio(data1_2024_Q3$gross_profit_sd_ema),
+    SortinoRatio(data1_2024_Q4$gross_profit_sd_ema)
+  ),
+  
+  Net_SR_SD_EMA = c(
+    SortinoRatio(data1_2022_Q1$net_profit_sd_ema),
+    SortinoRatio(data1_2022_Q2$net_profit_sd_ema),
+    SortinoRatio(data1_2022_Q3$net_profit_sd_ema),
+    SortinoRatio(data1_2022_Q4$net_profit_sd_ema),
+    SortinoRatio(data1_2023_Q1$net_profit_sd_ema),
+    SortinoRatio(data1_2023_Q2$net_profit_sd_ema),
+    SortinoRatio(data1_2023_Q3$net_profit_sd_ema),
+    SortinoRatio(data1_2023_Q4$net_profit_sd_ema),
+    SortinoRatio(data1_2024_Q1$net_profit_sd_ema),
+    SortinoRatio(data1_2024_Q2$net_profit_sd_ema),
+    SortinoRatio(data1_2024_Q3$net_profit_sd_ema),
+    SortinoRatio(data1_2024_Q4$net_profit_sd_ema)
+  ),
+  
+  Gross_CR_SD_EMA = c(
+    myCalmarRatio(data1_2022_Q1$gross_profit_sd_ema, scale = 252),
+    myCalmarRatio(data1_2022_Q2$gross_profit_sd_ema, scale = 252),
+    myCalmarRatio(data1_2022_Q3$gross_profit_sd_ema, scale = 252),
+    myCalmarRatio(data1_2022_Q4$gross_profit_sd_ema, scale = 252),
+    myCalmarRatio(data1_2023_Q1$gross_profit_sd_ema, scale = 252),
+    myCalmarRatio(data1_2023_Q2$gross_profit_sd_ema, scale = 252),
+    myCalmarRatio(data1_2023_Q3$gross_profit_sd_ema, scale = 252),
+    myCalmarRatio(data1_2023_Q4$gross_profit_sd_ema, scale = 252),
+    myCalmarRatio(data1_2024_Q1$gross_profit_sd_ema, scale = 252),
+    myCalmarRatio(data1_2024_Q2$gross_profit_sd_ema, scale = 252),
+    myCalmarRatio(data1_2024_Q3$gross_profit_sd_ema, scale = 252),
+    myCalmarRatio(data1_2024_Q4$gross_profit_sd_ema, scale = 252)
+  ),
+  
+  Net_CR_SD_EMA = c(
+    myCalmarRatio(data1_2022_Q1$net_profit_sd_ema, scale = 252),
+    myCalmarRatio(data1_2022_Q2$net_profit_sd_ema, scale = 252),
+    myCalmarRatio(data1_2022_Q3$net_profit_sd_ema, scale = 252),
+    myCalmarRatio(data1_2022_Q4$net_profit_sd_ema, scale = 252),
+    myCalmarRatio(data1_2023_Q1$net_profit_sd_ema, scale = 252),
+    myCalmarRatio(data1_2023_Q2$net_profit_sd_ema, scale = 252),
+    myCalmarRatio(data1_2023_Q3$net_profit_sd_ema, scale = 252),
+    myCalmarRatio(data1_2023_Q4$net_profit_sd_ema, scale = 252),
+    myCalmarRatio(data1_2024_Q1$net_profit_sd_ema, scale = 252),
+    myCalmarRatio(data1_2024_Q2$net_profit_sd_ema, scale = 252),
+    myCalmarRatio(data1_2024_Q3$net_profit_sd_ema, scale = 252),
+    myCalmarRatio(data1_2024_Q4$net_profit_sd_ema, scale = 252)
+  ),
+  
+  Gross_cumPnL_SD_EMA = c(
+    tail(cumsum(data1_2022_Q1$gross_profit_sd_ema), 1),
+    tail(cumsum(data1_2022_Q2$gross_profit_sd_ema), 1),
+    tail(cumsum(data1_2022_Q3$gross_profit_sd_ema), 1),
+    tail(cumsum(data1_2022_Q4$gross_profit_sd_ema), 1),
+    tail(cumsum(data1_2023_Q1$gross_profit_sd_ema), 1),
+    tail(cumsum(data1_2023_Q2$gross_profit_sd_ema), 1),
+    tail(cumsum(data1_2023_Q3$gross_profit_sd_ema), 1),
+    tail(cumsum(data1_2023_Q4$gross_profit_sd_ema), 1),
+    tail(cumsum(data1_2024_Q1$gross_profit_sd_ema), 1),
+    tail(cumsum(data1_2024_Q2$gross_profit_sd_ema), 1),
+    tail(cumsum(data1_2024_Q3$gross_profit_sd_ema), 1),
+    tail(cumsum(data1_2024_Q4$gross_profit_sd_ema), 1)
+  ),
+  
+  Net_cumPnL_SD_EMA = c(
+    tail(cumsum(data1_2022_Q1$net_profit_sd_ema), 1),
+    tail(cumsum(data1_2022_Q2$net_profit_sd_ema), 1),
+    tail(cumsum(data1_2022_Q3$net_profit_sd_ema), 1),
+    tail(cumsum(data1_2022_Q4$net_profit_sd_ema), 1),
+    tail(cumsum(data1_2023_Q1$net_profit_sd_ema), 1),
+    tail(cumsum(data1_2023_Q2$net_profit_sd_ema), 1),
+    tail(cumsum(data1_2023_Q3$net_profit_sd_ema), 1),
+    tail(cumsum(data1_2023_Q4$net_profit_sd_ema), 1),
+    tail(cumsum(data1_2024_Q1$net_profit_sd_ema), 1),
+    tail(cumsum(data1_2024_Q2$net_profit_sd_ema), 1),
+    tail(cumsum(data1_2024_Q3$net_profit_sd_ema), 1),
+    tail(cumsum(data1_2024_Q4$net_profit_sd_ema), 1)
+  ),
+  
+  Avg_nTrades_SD_EMA = c(
+    mean(data1_2022_Q1$ntrans_ema_120),
+    mean(data1_2022_Q2$ntrans_ema_120),
+    mean(data1_2022_Q3$ntrans_ema_120),
+    mean(data1_2022_Q4$ntrans_ema_120),
+    mean(data1_2023_Q1$ntrans_ema_120),
+    mean(data1_2023_Q2$ntrans_ema_120),
+    mean(data1_2023_Q3$ntrans_ema_120),
+    mean(data1_2023_Q4$ntrans_ema_120),
+    mean(data1_2024_Q1$ntrans_ema_120),
+    mean(data1_2024_Q2$ntrans_ema_120),
+    mean(data1_2024_Q3$ntrans_ema_120),
+    mean(data1_2024_Q4$ntrans_ema_120)
+  ),
+  
+  Summary_Statistic_SD_EMA = c(
+    myCalmarRatio(data1_2022_Q1$net_profit_sd_ema, scale = 252) * max(log(abs(data1_2022_Q1$net_profit_sd_ema))),
+    myCalmarRatio(data1_2022_Q2$net_profit_sd_ema, scale = 252) * max(log(abs(data1_2022_Q2$net_profit_sd_ema))),
+    myCalmarRatio(data1_2022_Q3$net_profit_sd_ema, scale = 252) * max(log(abs(data1_2022_Q3$net_profit_sd_ema))),
+    myCalmarRatio(data1_2022_Q4$net_profit_sd_ema, scale = 252) * max(log(abs(data1_2022_Q4$net_profit_sd_ema))),
+    myCalmarRatio(data1_2023_Q1$net_profit_sd_ema, scale = 252) * max(log(abs(data1_2023_Q1$net_profit_sd_ema))),
+    myCalmarRatio(data1_2023_Q2$net_profit_sd_ema, scale = 252) * max(log(abs(data1_2023_Q2$net_profit_sd_ema))),
+    myCalmarRatio(data1_2023_Q3$net_profit_sd_ema, scale = 252) * max(log(abs(data1_2023_Q3$net_profit_sd_ema))),
+    myCalmarRatio(data1_2023_Q4$net_profit_sd_ema, scale = 252) * max(log(abs(data1_2023_Q4$net_profit_sd_ema))),
+    myCalmarRatio(data1_2024_Q1$net_profit_sd_ema, scale = 252) * max(log(abs(data1_2024_Q1$net_profit_sd_ema))),
+    myCalmarRatio(data1_2024_Q2$net_profit_sd_ema, scale = 252) * max(log(abs(data1_2024_Q2$net_profit_sd_ema))),
+    myCalmarRatio(data1_2024_Q3$net_profit_sd_ema, scale = 252) * max(log(abs(data1_2024_Q3$net_profit_sd_ema))),
+    myCalmarRatio(data1_2024_Q4$net_profit_sd_ema, scale = 252) * max(log(abs(data1_2024_Q4$net_profit_sd_ema)))
+  )
+)
+
+total_row <- data.frame(
+  Period = "Total",
+  Gross_SR_SD_EMA = sum(result_ema_sd$Gross_SR_SD_EMA, na.rm = TRUE),
+  Net_SR_SD_EMA = sum(result_ema_sd$Net_SR_SD_EMA, na.rm = TRUE),
+  Gross_CR_SD_EMA = sum(result_ema_sd$Gross_CR_SD_EMA, na.rm = TRUE),
+  Net_CR_SD_EMA = sum(result_ema_sd$Net_CR_SD_EMA, na.rm = TRUE),
+  Gross_cumPnL_SD_EMA = sum(result_ema_sd$Gross_cumPnL_SD_EMA, na.rm = TRUE),
+  Net_cumPnL_SD_EMA = sum(result_ema_sd$Net_cumPnL_SD_EMA, na.rm = TRUE),
+  Avg_nTrades_SD_EMA = mean(result_ema_sd$Avg_nTrades_SD_EMA, na.rm = TRUE),
+  Summary_Statistic_SD_EMA = sum(result_ema_sd$Summary_Statistic_SD_EMA, na.rm = TRUE),
+  stringsAsFactors = FALSE
+)
+
+# Ensure column names of total_row match result
+colnames(total_row) <- colnames(result_ema_sd)
+# Append the total row and reset row names
+result_ema_sd <- rbind(result_ema_sd, total_row)
+rownames(result_ema_sd) <- NULL
+```
+
+## Create csv file for the result
+
+```{r}
+final_result <- merge(result_ema_120, result_ema_sd, all = TRUE)
+write.csv(final_result, file = "/Users/elgun/Desktop/Quantitative-strategies-on-High-Frequency-Data/result.csv", row.names = FALSE)
+
+```
+
+
+# **Conclusion**
+
+## **Overall Performance**
+- The **first strategy** (EMA) yielded a **cumulative net loss of -10,261.30**, with significant losses in some periods, such as **2022 Q2** and **2022 Q4**, despite some gains in periods like **2022 Q1** (**net profit of 42,429.88**).
+- The **second strategy** (EMA with Volatility Band) demonstrated a more stable performance, with **gross profit averaging 2,593.61** and cumulative net profit of **-1,951.62**. It performed better in periods like **2022 Q1** but was weighed down by negative results in other periods like **2022 Q2**.
+
+## **Key Strengths and Weaknesses**
+1. **Strengths**:
+   - **Second Strategy (Volatility Band)** achieved positive gross profits in key periods (e.g., **2022 Q1: 85,882.60**) and better stability metrics, including a relatively positive **Net Calmar Ratio** in a few quarters.
+   - The **first strategy** showed sporadic profitability, with a notable performance in **2022 Q1**.
+2. **Weaknesses**:
+   - Both strategies had **low risk-adjusted returns**, as seen in the **negative Net Sortino Ratio** for most periods.
+   - **Sustained losses** in periods such as **2022 Q2** and **2023 Q1** eroded the overall profitability of both strategies.
+
+## **Risk-Adjusted Metrics**
+- The **Net Sortino Ratio** for both strategies remained negative across most periods, emphasizing poor downside risk-adjusted returns.
+- The **Net Calmar Ratio** for the second strategy was slightly positive in isolated periods but was not consistent enough for reliable long-term use.
+
+## **Decision**
+- Based on the analysis, the **second strategy (EMA with Volatility Band)** is the preferred choice. While neither strategy is optimal, the second strategy demonstrated better gross profit stability and lower volatility in some periods, making it more viable for further refinement and testing.

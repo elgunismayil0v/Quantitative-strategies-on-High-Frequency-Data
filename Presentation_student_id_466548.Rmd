@@ -1,0 +1,159 @@
+---
+title: "Quantitative strategies on High Frequency Data"
+subtitle: "PRESENTATION"
+author: "Elgun Ismayilov"
+date: "Academic year 2024/2025"
+output: slidy_presentation
+fontsize: 12pt
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = T, error = FALSE, message = FALSE,
+                      warning = FALSE)
+```
+
+```{r, include=FALSE}
+library(kableExtra) #for tables
+```
+
+```{r, echo = FALSE}
+result <- read.csv("/Users/elgun/Desktop/Quantitative-strategies-on-High-Frequency-Data/result.csv")
+```
+
+
+# Introduction
+
+In this project, we implement two simple trading strategies for a single asset: the NASDAQ index futures contract.
+
+## Strategy 1: Exponential Moving Average (EMA)
+
+This strategy uses a 120-period EMA. The trading logic is as follows:
+
+- If, at time \( t_{i-1} \), the asset's price is higher than the EMA, a buy order is placed.
+
+- Otherwise, a sell order is executed at time \( t_i \).
+
+## Strategy 2: EMA with Volatility Band
+
+This strategy uses a 60-period EMA along with a volatility band based on a 120-period window. The trading logic is as follows:
+
+- If, at time \( t_{i-1} \), the asset's price is greater than the EMA plus the volatility band, a buy order is placed.
+
+- Otherwise, a sell order is executed.
+
+# Performance Analysis of EMA 120 window
+
+
+```{r, echo = F}
+# Create the kable object with the first 9 columns
+kable(result[, 1:9], "html", digits = 6, align = "r") %>%
+  kable_styling(font_size = 12, full_width = FALSE) %>%
+  column_spec(1:9, width = "12em", color = "darkgreen") %>% 
+  row_spec(0, bold = TRUE, color = "navy", background = "lightgray")  
+
+```
+
+
+## Profitability Overview
+
+**First period** shows a positive cumulative net profit (42,429.88), indicating successful strategy execution.
+
+**Remaining periods** exhibit consistent losses, with the fifth period suffering the largest cumulative net loss (-44,017.80).
+
+## Risk Metrics Evaluation
+
+**Sortino Ratio** (-0.038804): Negative value signals that downside risk dominates returns, leading to poor risk-adjusted performance.
+
+**Calmar Ratio** (-0.009086): Highlights significant drawdowns, suggesting the strategy fails to sustain long-term profitability.
+
+**Cumulative net profit** (-69,383.76): The overall strategy is losing money, confirming an ineffective approach.
+
+## Trade Frequency & Performance Correlation
+
+**Higher trade frequency** (Avg_nTrades_EMA_120) does not equate to better performance.
+
+**Fifth Period** has high trade frequency (0.096064) but incurs largest loss (-44,017.80).
+
+**Best-performing period** (first period) has a moderate trade frequency (0.083263), indicating trade quality matters more than quantity.
+
+# Performance Analysis of EMA 60 and SD 120 Window
+
+
+```{r, echo = F}
+# Create the kable object with the first column and columns from the 10th onward
+kable(result[, c(1, 10:ncol(result))], "html", digits = 6, align = "r") %>%
+  kable_styling(font_size = 12, full_width = FALSE) %>%
+  column_spec(1:ncol(result[, c(1, 10:ncol(result))]), width = "12em", color = "darkgreen") %>%  # Apply styling to selected columns
+  row_spec(0, bold = TRUE, color = "navy", background = "gray")  # Style the header row
+
+
+
+```
+
+
+## Quarterly Performance Analysis
+
+### **Best Performing Period**
+- **2022 Q1**:
+  - **Cumulative Gross Profit**: Highest at **85,882.60**, reflecting strong financial performance.
+  - Positive performance metrics:
+    - **Gross_CR_SD_EMA**: **0.070587**
+    - **Net_CR_SD_EMA**: **0.066517**
+    - **Gross_SR_SD_EMA**: **0.024020**
+    - **Net_SR_SD_EMA**: **0.022794**
+
+### **Worst Performing Period**
+- **2023 Q2**:
+  - **Cumulative Gross Profit**: Lowest at **-17,923.52**, highlighting a challenging quarter.
+  - Negative performance metrics:
+    - **Gross_CR_SD_EMA**: **-0.009856**
+    - **Net_CR_SD_EMA**: **-0.009987**
+    - **Gross_SR_SD_EMA**: **-0.010208**
+    - **Net_SR_SD_EMA**: **-0.012907**
+
+### **Other Performance Trends**
+1. **Moderate Positive Quarters**:
+   - **2023 Q4**: Gross profit of **7,762.00** with consistent positive metrics.
+   - **2024 Q1**: Cumulative gross profit of **9,343.56**, maintaining improvement.
+2. **Reversion to Negative**:
+   - **2024 Q2**: Cumulative gross profit dropped to **-8,622.10**, with a return to negative performance metrics.
+
+## Performance Metrics Overview
+
+1. **Net Sortino Ratio**:  
+   - Minimal downside risk-adjusted returns at **0.000633**.
+
+2. **Net Calmar Ratio**:  
+   - A relatively low value of **0.047944**, suggesting limited risk-adjusted performance relative to drawdowns.
+
+3. **Cumulative net profit**:  
+   - Total cumulative profit is **33,465.62**, indicating overall positive performance.
+
+4. **Average Trade Profitability**:  
+   - An average trade value of **0.592938**, showing moderate per-trade profitability.
+
+5. **Summary Statistic**:  
+   - A value of **0.355229**, reflecting balanced overall performance across periods.
+
+# **Conclusion**
+
+## **Overall Performance**
+- The **first strategy** (EMA) resulted in a **total cumulative net loss of -69,383.76**, with consistently negative performance across most periods. The **only profitable quarter** was the first, highlighting the lack of long-term sustainability for this approach.
+- The **second strategy** (EMA with Volatility Band) yielded a **modest cumulative net profit of 33,465.62**, showing better resilience and periodic recovery (e.g., **2023 Q4** and **2024 Q1**). However, overall profitability remains suboptimal due to volatility and inconsistent results.
+
+## **Key Strengths and Weaknesses**
+1. **Strengths**:
+   - **Second Strategy (Volatility Band)** demonstrated periods of profitability (notably **2022 Q1**) and positive performance metrics like the **Net Calmar Ratio** (0.047944).
+2. **Weaknesses**:
+   - Both strategies suffered from poor **risk-adjusted performance**, as indicated by the low or negative **Sortino** and **Calmar Ratios**.
+   - Sustained losses in multiple periods, especially **2023 Q2**, undermined cumulative gains.
+
+## **Risk-Adjusted Metrics**
+- The **Sortino Ratio** for both strategies was low or negative, indicating poor downside risk-adjusted returns.
+- The **Net Calmar Ratio** for the second strategy (0.047944) was slightly positive but insufficient for long-term reliability.
+
+## **Decision**
+- Based on the analysis, I choose the **second strategy (EMA with Volatility Band)**. The positive cumulative net profit and better overall metrics make it a more viable option compared to the first strategy.
+
